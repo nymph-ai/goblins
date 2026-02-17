@@ -59,13 +59,13 @@
             <op:gc-export>
             op:gc-export
             op:gc-export?
-            op:gc-export-export-pos
-            op:gc-export-wire-delta
+            op:gc-export-export-positions
+            op:gc-export-wire-deltas
 
             <op:gc-answer>
             op:gc-answer
             op:gc-answer?
-            op:gc-answer-answer-pos
+            op:gc-answer-answer-positions
 
             <op:get>
             op:get
@@ -291,17 +291,17 @@
   (wants-partial? op:listen-wants-partial?))
 
 (define-syrup-record-type <op:gc-export>
-  (op:gc-export export-pos wire-delta)
+  (op:gc-export export-positions wire-deltas)
   op:gc-export?
   op:gc-export marshall::op:gc-export unmarshall::op:gc-export
-  (export-pos op:gc-export-export-pos)
-  (wire-delta op:gc-export-wire-delta))
+  (export-positions op:gc-export-export-positions)
+  (wire-deltas op:gc-export-wire-deltas))
 
 (define-syrup-record-type <op:gc-answer>
-  (op:gc-answer answer-pos)
+  (op:gc-answer answer-positions)
   op:gc-answer?
   op:gc-answer marshall::op:gc-answer unmarshall::op:gc-answer
-  (answer-pos op:gc-answer-answer-pos))
+  (answer-positions op:gc-answer-answer-positions))
 
 (define-syrup-record-type <desc:import-object>
   (desc:import-object pos)

@@ -242,7 +242,7 @@
               export-pos other-val)]))
 
   (define (gc:question sealed-pos)
-    (<-np-extern internal-handler (cmd-send-gc-answer (pos-unseal sealed-pos))))
+    (<-np-extern internal-handler (cmd-send-gc-answer (list (pos-unseal sealed-pos)))))
 
   (define (gc:import sealed-pos)
     (let* ((import-pos (pos-unseal sealed-pos))
@@ -252,7 +252,8 @@
       (<-np-extern internal-handler
                    ;; The number of references is one more than the number of
                    ;; spares.
-                   (cmd-send-gc-export import-pos (+ spare-count 1)))))
+                   (cmd-send-gc-export (list import-pos)
+                                       (list (+ spare-count 1))))))
 
   (define (gc-loop)
     (when running?
@@ -642,10 +643,16 @@
            (listen-to to-refr listener
                       #:wants-partial? wants-partial?)
            *unspecified*)]
-        [($ <op:gc-answer> answer-pos)
-         (hashv-remove! answers answer-pos)]
-        [($ <op:gc-export> (? integer? export-pos) (? integer? wire-delta))
-         (decrement-exports-count-maybe-remove! export-pos wire-delta)]
+        [($ <op:gc-answer> answer-positions)
+         (for-each
+          (lambda (answer-pos)
+            (hashv-remove! answers answer-pos))
+          answer-positions)]
+        [($ <op:gc-export> export-positions wire-deltas)
+         (for-each
+          decrement-exports-count-maybe-remove!
+          export-positions
+          wire-deltas)]
         [($ <op:abort> (? string? reason))
          (tear-it-down 'abort reason)]
         [($ <internal-shutdown> (? symbol? type) (? string? reason))
@@ -694,10 +701,10 @@
           [($ <cmd-send-tagged-ref> to label answer-this-question)
            (let ((new-answer-pos (hashq-ref questions answer-this-question)))
              (send-to-remote (op:untag (marshall-to to) label new-answer-pos)))]
-          [($ <cmd-send-gc-answer> (? integer? answer-pos))
-           (send-to-remote (op:gc-answer answer-pos))]
-          [($ <cmd-send-gc-export> (? integer? export-pos) (? integer? wire-delta))
-           (send-to-remote (op:gc-export export-pos wire-delta))]
+          [($ <cmd-send-gc-answer> (answer-positions ...))
+           (send-to-remote (op:gc-answer answer-positions))]
+          [($ <cmd-send-gc-export> (export-positions ...) (wire-deltas ...))
+           (send-to-remote (op:gc-export export-positions wire-deltas))]
           [($ <internal-shutdown> shutdown-type reason)
            (when (eq? shutdown-type 'abort)
              (send-to-remote (op:abort reason)))
@@ -717,10 +724,8 @@
           [($ <cmd-send-listen> (? remote-refr? to-refr) (? local-refr? listener-refr)
                                 (? boolean? wants-partial?))
            (<-np listener-refr 'break (captp-session-severed))]
-          [($ <cmd-send-gc-answer> (? integer? answer-pos))
-           'no-op]
-          [($ <cmd-send-gc-export> (? integer? export-pos))
-           'no-op]
+          [($ <cmd-send-gc-answer> answer-positions) 'no-op]
+          [($ <cmd-send-gc-export> export-positions wire-deltas) 'no-op]
           [($ <internal-shutdown> _shutdown-type _reason)
            'no-op]))
       (if running?
