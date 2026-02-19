@@ -30,12 +30,6 @@
             captp-session-severed
             captp-session-severed?
 
-            <op:deliver-only>
-            op:deliver-only
-            op:deliver-only?
-            op:deliver-only-to-desc
-            op:deliver-only-args
-
             <op:deliver>
             op:deliver
             op:deliver?
@@ -226,19 +220,6 @@
   captp-session-severed?)
 
 ;;; Messages
-
-;; Queue a delivery of verb(args..) to recip, discarding the outcome.
-(define-syrup-record-type <op:deliver-only>
-  (op:deliver-only to-desc args)
-  op:deliver-only?
-  op:deliver-only marshall::op:deliver-only unmarshall::op:deliver-only
-  ;; Position in the table for the target
-  ;; (sender's imports, receiver's exports)
-  (to-desc op:deliver-only-to-desc)
-   ;; Either arguments to the method or to the procedure, depending
-   ;; on whether method exists
-  (args op:deliver-only-args))
-
 (define-syrup-record-type <op:get>
   (op:get receiver-desc field-name new-answer-pos)
   op:get?
@@ -407,8 +388,7 @@
   (acceptable-location-sig op:start-session-acceptable-location-sig))
 
 (define marshallers
-  (list marshall::op:deliver-only
-        marshall::op:deliver
+  (list marshall::op:deliver
         marshall::op:abort
         marshall::op:listen
         marshall::op:gc-export
@@ -429,8 +409,7 @@
         marshall::ocapn-sturdyref))
 
 (define unmarshallers
-  (list unmarshall::op:deliver-only
-        unmarshall::op:deliver
+  (list unmarshall::op:deliver
         unmarshall::op:abort
         unmarshall::op:listen
         unmarshall::op:gc-export

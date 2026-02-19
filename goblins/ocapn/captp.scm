@@ -50,7 +50,7 @@
   #:use-module (fibers channels)
   #:export (spawn-mycapn captp-env))
 
-(define captp-version "goblins-0.16")
+(define captp-version "goblins-0.18")
 
 ;; This should be better documented, and will when it becomes more of
 ;; a "standardized protocol" as opposed to a "bespoke implementation".
@@ -69,6 +69,10 @@
 ;; For the handoff stuff:
 ;;   https://dustycloud.org/tmp/captp-handoff-musings.org.txt
 ;;   https://dustycloud.org/misc/3vat-handoff-scaled.jpg
+(define (positive-or-zero? n)
+  (and (integer? n)
+       (exact? n)
+       (or (zero? n) (positive? n))))
 
 (define (setup-captp-conn send-to-remote
                           ;; coordinates between multiple captp connections:
@@ -511,17 +515,11 @@
           [else
            (error 'captp-to-wrong-peer)]))]))
 
-  (define (install-answer! answer-pos resolve-me-desc)
-    (define resolve-me
-      (maybe-install-import! resolve-me-desc))
+  (define (install-answer! answer-pos vow)
     (when (hashv-ref answers answer-pos)
       (error 'already-have-answer
              "~a" answer-pos))
-    (let-values (((answer-promise answer-resolver)
-                 (spawn-promise-and-resolver)))
-      (hashv-set! answers answer-pos answer-promise)
-      (listen-to answer-promise resolve-me)
-      (values answer-promise answer-resolver)))
+    (hashv-set! answers answer-pos vow))
 
   ;; Resolvers that are interested in when we're tearing down
   (define interested-in-sever
@@ -558,49 +556,33 @@
         (error 'captp-breakage "Captp session is no longer running but got ~a"
                msg))
       (match msg
-        ;; TODO: Handle case where the target doesn't exist?
-        ;;   Or maybe just generally handle unmarshalling errors :P
-        [($ <op:deliver-only> to-desc args-marshalled)
-         (let*-values (((args)
-                        (incoming-post-unmarshall! args-marshalled))
-                       ((target) (unmarshall-to-desc to-desc)))
-           (apply <-np target args)
-           *unspecified*)]
-        [($ <op:deliver> to-desc
-                         args-marshalled
-                         ;; answer-pos is either an integer (promise pipelining)
-                         ;; or #f (no pipelining)
-                         (and (or (? integer?) #f)
-                              answer-pos)
-                         resolve-me-desc)
-         (define (do-it)
-           (define args
-             (incoming-post-unmarshall! args-marshalled))
-           (define target (unmarshall-to-desc to-desc))
-           (define sent-promise
-             (apply <- target args))
-           ;; We're either resolving the to the answer promise we create
-           ;; or we're resolving to the actual object described by resolve-me-desc
-           ;;
-           ;; The former case is an indirection because messages pipelined
-           ;; to a to-be-answered object are simply sent to a local promise
-           ;; which will eventually resolve to the answer.
-           ;;
-           ;; It's possible that something more efficient could be done
-           ;; than throwing in an intermediate promise pair that we inform the
-           ;; other side of; maybe re-evaluate when we handle
-           ;; automatic-severance-on-session-disconnect.
-           (cond
-            [answer-pos
-             (let-values (((_answer-promise answer-resolver)
-                           (install-answer! answer-pos resolve-me-desc)))
-               ($$ answer-resolver 'fulfill sent-promise))]
-            [else
-             (let ((to-resolve
-                    (maybe-install-import! resolve-me-desc)))
-               (<-np to-resolve 'fulfill sent-promise))])
-           *unspecified*)
-         (do-it)]
+        ;; (<-np to-desc args-marshalled ...)
+        [($ <op:deliver> to-desc args-marshalled #f #f)
+         (let ((target (unmarshall-to-desc to-desc))
+               (args (incoming-post-unmarshall! args-marshalled)))
+           (apply <-np target args))]
+
+        ;; (<- to-desc args-marshalled ...)
+        [($ <op:deliver> to-desc args-marshalled
+            ;; answer-pos is either an integer (promise pipelining)
+            ;; or #f (no pipelining)
+            (and (or (? positive-or-zero?) #f) answer-pos)
+            (and (or (? desc:import-object?)
+                     (? desc:import-promise?)
+                     #f)
+                 resolve-me-desc))
+
+         (define args (incoming-post-unmarshall! args-marshalled))
+         (define target (unmarshall-to-desc to-desc))
+         (define sent-promise (apply <- target args))
+
+         (when answer-pos
+           (install-answer! answer-pos sent-promise))
+
+         (when resolve-me-desc
+           (let ((resolve-me (maybe-install-import! resolve-me-desc)))
+             (listen-to sent-promise resolve-me)))
+         *unspecified*]
 
         [($ <op:get> to-desc (? string? field-name) (? exact-integer? answer-pos))
          (define target (unmarshall-to-desc to-desc))
@@ -681,8 +663,10 @@
                                (outgoing-pre-marshall! args)
                                answer-pos
                                (marshall-local-refr! resolve-me))
-                   (op:deliver-only (marshall-to to)
-                                    (outgoing-pre-marshall! args))))
+                   (op:deliver (marshall-to to)
+                               (outgoing-pre-marshall! args)
+                               #f
+                               #f)))
              (send-to-remote deliver-msg))]
           [($ <cmd-send-listen> (and (or (? remote-refr?) (? question-finder?)) to)
                                 (? local-refr? listener-refr)
