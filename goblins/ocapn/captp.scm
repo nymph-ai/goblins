@@ -69,10 +69,8 @@
 ;; For the handoff stuff:
 ;;   https://dustycloud.org/tmp/captp-handoff-musings.org.txt
 ;;   https://dustycloud.org/misc/3vat-handoff-scaled.jpg
-(define (positive-or-zero? n)
-  (and (integer? n)
-       (exact? n)
-       (or (zero? n) (positive? n))))
+(define (index? n)
+  (and (exact-integer? n) (>= n 0)))
 
 (define (setup-captp-conn send-to-remote
                           ;; coordinates between multiple captp connections:
@@ -566,7 +564,7 @@
         [($ <op:deliver> to-desc args-marshalled
             ;; answer-pos is either an integer (promise pipelining)
             ;; or #f (no pipelining)
-            (and (or (? positive-or-zero?) #f) answer-pos)
+            (and (or (? index?) #f) answer-pos)
             (and (or (? desc:import-object?)
                      (? desc:import-promise?)
                      #f)
