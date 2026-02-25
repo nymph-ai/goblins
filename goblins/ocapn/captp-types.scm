@@ -50,16 +50,16 @@
             op:listen-listener-desc
             op:listen-wants-partial?
 
-            <op:gc-export>
-            op:gc-export
-            op:gc-export?
-            op:gc-export-export-positions
-            op:gc-export-wire-deltas
+            <op:gc-exports>
+            op:gc-exports
+            op:gc-exports?
+            op:gc-exports-export-positions
+            op:gc-exports-wire-deltas
 
-            <op:gc-answer>
-            op:gc-answer
-            op:gc-answer?
-            op:gc-answer-answer-positions
+            <op:gc-answers>
+            op:gc-answers
+            op:gc-answers?
+            op:gc-answers-answer-positions
 
             <op:get>
             op:get
@@ -271,17 +271,17 @@
   (listener-desc op:listen-listener-desc)
   (wants-partial? op:listen-wants-partial?))
 
-(define-syrup-record-type <op:gc-export>
-  (op:gc-export export-positions wire-deltas)
-  op:gc-export?
-  op:gc-export marshall::op:gc-export unmarshall::op:gc-export
-  (export-positions op:gc-export-export-positions)
-  (wire-deltas op:gc-export-wire-deltas))
+(define-syrup-record-type <op:gc-exports>
+  (op:gc-exports export-positions wire-deltas)
+  op:gc-exports?
+  op:gc-exports marshall::op:gc-exports unmarshall::op:gc-exports
+  (export-positions op:gc-exports-export-positions)
+  (wire-deltas op:gc-exports-wire-deltas))
 
-(define-syrup-record-type <op:gc-answer>
-  (op:gc-answer answer-positions)
-  op:gc-answer?
-  op:gc-answer marshall::op:gc-answer unmarshall::op:gc-answer
+(define-syrup-record-type <op:gc-answers>
+  (op:gc-answers answer-positions)
+  op:gc-answers?
+  op:gc-answers marshall::op:gc-answers unmarshall::op:gc-answers
   (answer-positions op:gc-answer-answer-positions))
 
 (define-syrup-record-type <desc:import-object>
@@ -391,8 +391,8 @@
   (list marshall::op:deliver
         marshall::op:abort
         marshall::op:listen
-        marshall::op:gc-export
-        marshall::op:gc-answer
+        marshall::op:gc-exports
+        marshall::op:gc-answers
         marshall::desc:import-object
         marshall::desc:import-promise
         marshall::desc:export
@@ -412,8 +412,8 @@
   (list unmarshall::op:deliver
         unmarshall::op:abort
         unmarshall::op:listen
-        unmarshall::op:gc-export
-        unmarshall::op:gc-answer
+        unmarshall::op:gc-exports
+        unmarshall::op:gc-answers
         unmarshall::desc:import-object
         unmarshall::desc:import-promise
         unmarshall::desc:export

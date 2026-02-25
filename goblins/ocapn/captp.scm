@@ -623,12 +623,12 @@
            (listen-to to-refr listener
                       #:wants-partial? wants-partial?)
            *unspecified*)]
-        [($ <op:gc-answer> answer-positions)
+        [($ <op:gc-answers> answer-positions)
          (for-each
           (lambda (answer-pos)
             (hashv-remove! answers answer-pos))
           answer-positions)]
-        [($ <op:gc-export> export-positions wire-deltas)
+        [($ <op:gc-exports> export-positions wire-deltas)
          (for-each
           decrement-exports-count-maybe-remove!
           export-positions
@@ -684,9 +684,9 @@
            (let ((new-answer-pos (hashq-ref questions answer-this-question)))
              (send-to-remote (op:untag (marshall-to to) label new-answer-pos)))]
           [($ <cmd-send-gc-answer> (answer-positions ...))
-           (send-to-remote (op:gc-answer answer-positions))]
+           (send-to-remote (op:gc-answers answer-positions))]
           [($ <cmd-send-gc-export> (export-positions ...) (wire-deltas ...))
-           (send-to-remote (op:gc-export export-positions wire-deltas))]
+           (send-to-remote (op:gc-exports export-positions wire-deltas))]
           [($ <internal-shutdown> shutdown-type reason)
            (when (eq? shutdown-type 'abort)
              (send-to-remote (op:abort reason)))
