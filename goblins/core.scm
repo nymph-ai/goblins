@@ -620,7 +620,7 @@ Type: Actormap -> TransActormap"
 
 (define-record-type <bcom-sealed>
   (make-bcom-sealed secret new-behavior return-val)
-  _bcom-sealed?
+  bcom-sealed?
   (secret bcom-sealed-secret)
   (new-behavior bcom-sealed-new-behavior)
   (return-val bcom-sealed-return-val))
@@ -629,17 +629,17 @@ Type: Actormap -> TransActormap"
   (define secret (cons '*secret* '*id*))
   (define* (bcom new-behavior #:optional [return-val *unspecified*])
     (make-bcom-sealed secret new-behavior return-val))
-  (define (bcom-sealed? maybe-sealed)
-    (and (_bcom-sealed? maybe-sealed)
+  (define (sealed? maybe-sealed)
+    (and (bcom-sealed? maybe-sealed)
          (eq? (bcom-sealed-secret maybe-sealed) secret)))
   (define (bcom-unseal obj)
-    (unless (bcom-sealed? obj)
-      (if (_bcom-sealed? obj)
+    (unless (sealed? obj)
+      (if (bcom-sealed? obj)
           (error "Wrong bcom-unsealer for object:" obj)
           (error "Not a bcom-sealed object:" obj)))
     (values (bcom-sealed-new-behavior obj)
             (bcom-sealed-return-val obj)))
-  (values bcom bcom-unseal bcom-sealed?))
+  (values bcom bcom-unseal sealed?))
 
 ;; Rather than directly storing references to listeners, we use these
 ;; <listener-info> structs because, at least at the time, we have this
@@ -1067,18 +1067,25 @@ Type: Any -> Boolean"
          (let ([returned
                 (call-with-prompt *actor-await-prompt*
                   _do-actor-call _handle-await)])
-           (if (become? returned)
-               ;; The unsealer unseals both the behavior and return-value anyway
-               (let-values ([(new-beh return-val) (become-unsealer returned)])
-                 (match new-beh
-                   [(? portraitized-behavior? pb)
-                    (values (portraitized-behavior-behavior pb)
-                            return-val
-                            (portraitized-behavior-self-portrait pb))]
-                   [_ (values new-beh return-val (mactor:object-self-portrait mactor))]))
-
-               ;; In this case, we're not becoming anything, so just give us
-               ;; the return-val
+           ;; Is it sealed by *any* sealer?
+           (if (bcom-sealed? returned)
+               ;; Is it sealed by *this object's* sealer?
+               (if (become? returned)
+                   ;; The unsealer unseals both the behavior and return-value anyway
+                   (let-values ([(new-beh return-val) (become-unsealer returned)])
+                     (match new-beh
+                       [(? portraitized-behavior? pb)
+                        (values (portraitized-behavior-behavior pb)
+                                return-val
+                                (portraitized-behavior-self-portrait pb))]
+                       [_ (values new-beh return-val (mactor:object-self-portrait mactor))]))
+                   (raise-exception
+                    (make-exception
+                     (make-exception-with-message
+                      "New behavior sealed with wrong become capability")
+                     (make-exception-with-irritants (list to-refr)))))
+               ;; It's not been sealed with a bcom sealer, so we should just
+               ;; return the value
                (values #f returned (mactor:object-self-portrait mactor)))))
 
        ;; if a new behavior for this actor was specified,
@@ -1841,7 +1848,15 @@ Type: Promise (Optional (Any -> Any))
           proc-name
           (lambda (bcom)
             (lambda args
-              (bcom already-ran (apply obj args))))))]
+              (match (apply obj args)
+                ((? bcom-sealed?)
+                 ;; Throw an exception if the user tries to bcom from the on handler.
+                 (raise-exception
+                  (make-exception
+                   (make-exception-with-message
+                    "Behavior cannot be changed from within an `on` handler")
+                   (make-exception-with-irritants (list proc-name)))))
+                (return-val (bcom already-ran return-val)))))))]
       ;; If it's #f, leave it as #f
       [#f #f]
       ;; Otherwise, this doesn't belong here
