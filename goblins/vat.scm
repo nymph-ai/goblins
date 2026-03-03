@@ -1337,10 +1337,10 @@ Type: (Optional (#:name (U String Symbol)) (Optional (#:log? Boolean))
 
 ;; Request to register a vat
 (define-record-type <register-request>
-  (make-register-request vat-aurie-id vat)
+  (make-register-request vat-aurie-id aurie-id->refr)
   register-request?
   (vat-aurie-id register-request-vat-aurie-id)
-  (vat register-request-vat))
+  (aurie-id->refr register-request-aurie-id->refr))
 
 (define-record-type <registry-fetch-vat>
   (make-registry-fetch-vat vat-aurie-id)
@@ -1352,10 +1352,10 @@ Type: (Optional (#:name (U String Symbol)) (Optional (#:log? Boolean))
     ((? register-request? reg-request)
      (define vat-aurie-id
        (register-request-vat-aurie-id reg-request))
-     (define vat-to-register
-       (register-request-vat reg-request))
+     (define aurie-id->refr
+       (register-request-aurie-id->refr reg-request))
      (define vat-obj
-       (spawn ^aurie-vat-refr-resolver vat-to-register))
+       (spawn ^aurie-vat-refr-resolver aurie-id->refr))
      ;; fulfill a waiting resolver, if there is one
      ;; If there is not... we should error (?)
      (match (hashmap-ref vat-id->vat vat-aurie-id #f)
@@ -1388,18 +1388,7 @@ Type: (Optional (#:name (U String Symbol)) (Optional (#:log? Boolean))
        ;; otherwise, it must be the registered vat, so return that
        (vat vat)))))
 
-(define (^aurie-vat-refr-resolver _bcom vat)
-  (define actormap (vat-actormap vat))
-  (define metatype (actormap-metatype actormap))
-  (define actormap-for-each (actormap-metatype-for-each-proc metatype))
-  (define aurie-id->refr
-    (make-hash-table))
-  (actormap-for-each
-   (lambda (refr _mactor)
-     ;; Not promises!
-     (when (local-object-refr? refr)
-       (hash-set! aurie-id->refr (local-object-refr-aurie-id refr) refr)))
-   actormap)
+(define (^aurie-vat-refr-resolver _bcom aurie-id->refr)
   (lambda (aurie-actor-id)
     (hash-ref aurie-id->refr aurie-actor-id)))
 
@@ -1464,7 +1453,7 @@ using the migrations macro."
      #:log-capacity log-capacity))
 
   (define-values (far-refr-resolvers roots read-portrait!* val->slot-ref*
-                                     changed-objects spawned-new?)
+                                     changed-objects spawned-new? slots->refrs)
     (if (and portraits root-slots)
         (match (call-system-op-with-vat
                 vat (lambda (vat)
@@ -1474,15 +1463,15 @@ using the migrations macro."
                             (actormap-restore-with-far-refrs!*
                              vat-am persistence-env portraits root-slots))
                         list)))
-          [(changed-objects refrs->slots far-refr-resolvers roots)
+          [(changed-objects refrs->slots slots->refrs far-refr-resolvers roots)
            (define-values (read-portrait! val->slot-ref)
              (make-actormap-read-portrait! persistence-env roots #:refrs->slots refrs->slots))
-           (values far-refr-resolvers roots read-portrait! val->slot-ref changed-objects #f)])
+           (values far-refr-resolvers roots read-portrait! val->slot-ref changed-objects #f slots->refrs)])
         (with-vat vat
           (define roots (call-with-values spawn-roots-thunk list))
           (define-values (read-portrait! val->slot-ref)
             (make-actormap-read-portrait! persistence-env roots))
-          (values #f roots read-portrait! val->slot-ref '() #t))))
+          (values #f roots read-portrait! val->slot-ref '() #t #f))))
 
   (define (upgrade-roots)
     (define-values (new-version new-roots)
@@ -1524,11 +1513,21 @@ using the migrations macro."
   ;; promises requested immediately?
   (when persistence-registry
     ;; Register this vat.
-    ;;
+
     ;; We wait to talk to the registry until after all our Aurie objects
     ;; are restored to avoid race conditions.
     (<-np-extern persistence-registry
-                 (make-register-request current-vat-aurie-id vat))
+                 (make-register-request
+                  current-vat-aurie-id
+                  (or slots->refrs
+                      (let ((ht (make-hash-table)))
+                        (actormap-for-each
+                         (lambda (refr mactor)
+                           ;; Just objects, no promises.
+                           (when (local-object-refr? refr)
+                             (hash-set! ht refr (local-object-refr-aurie-id refr))))
+                         (vat-actormap vat))
+                        ht))))
 
     ;; Go through all the far actors we're waiting for and try and fetch them.
     (when far-refr-resolvers

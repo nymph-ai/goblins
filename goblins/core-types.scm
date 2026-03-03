@@ -37,6 +37,7 @@
             actormap-ref
             actormap-set!
             set-actormap-aurie-counter!
+            actormap-for-each
 
             merge-actormap-aurie-counters!
             increment-actormap-aurie-counter!
@@ -270,6 +271,10 @@
 ;; (-> actormap? local-refr? (or/c mactor? #f))
 (define (actormap-ref am key)
   ((actormap-metatype-ref-proc (actormap-metatype am)) am key))
+
+(define (actormap-for-each proc am)
+  ((actormap-metatype-for-each-proc (actormap-metatype am)) proc am)
+  *unspecified*)
 
 (define-record-type <whactormap-data>
   (make-whactormap-data wht)

@@ -2846,7 +2846,7 @@ Type: Actormap (-> Any) (Optional (#:catch-errors? Boolean)) -> Any"
   (list (object-spec-name object-spec) debug-name portrait-version depiction))
 
 (define* (make-actormap-read-portrait! persistence-env roots
-                                       #:key [refrs->slots (make-hash-table)])
+                                       #:key [refrs->slots (make-weak-key-hash-table)])
   "Creates a read-portrait function for a given graph to take single object portraits of the graph.
 
 Type: PersistenceEnv LiveRefr ... -> Procedure Procedure"
@@ -3154,7 +3154,8 @@ Type: Actormap PersistenceEnv -> Void"
     (if (pair? init-roots)
         init-roots
         (list init-roots)))
-  (define-values (changed-objects refrs->slots far-refr-resolvers restored-roots)
+  (define-values (changed-objects refrs->slots slots->refrs
+                                  far-refr-resolvers restored-roots)
     (actormap-restore-with-far-refrs!* am persistence-env portraits roots))
   (values far-refr-resolvers restored-roots))
 
@@ -3201,12 +3202,14 @@ Type: Actormap PersistenceEnv -> Void"
   ;; objects which would not only waste resources but cause problems if
   ;; spawned (objects can have side-effects when spawned).
   ;; The restore queue manages all the objects which need restoring.
-  (define changed-objects (make-hash-table))
   (define restore-queue (make-q))
   (define vat-connector (actormap-vat-connector am))
   (define slots->resolvers (make-hash-table))
+  (define changed-objects (make-weak-key-hash-table))
+  ;; This should be a strong hash table so we're holding onto the
+  ;; refrs we're restoring and the GC won't collect them.
   (define slots->refrs (make-hash-table))
-  (define refrs->slots (make-hash-table))
+  (define refrs->slots (make-weak-value-hash-table))
   (define (maybe-install-refr-for-slot! slot)
     (match (hashq-ref slots->refrs slot)
       (#f
@@ -3315,7 +3318,8 @@ Type: Actormap PersistenceEnv -> Void"
   (define changed-objects-lst
     (hash-fold (lambda (obj _ prev) (cons obj prev)) '() changed-objects))
 
-  (values changed-objects-lst refrs->slots far-refr-resolvers restored-roots))
+  (values changed-objects-lst refrs->slots slots->refrs
+          far-refr-resolvers restored-roots))
 
 (define (actormap-restore-from-store! am env store)
   "Reads portrait graph from STORE and restores into provided AM.
