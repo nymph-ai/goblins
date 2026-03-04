@@ -111,6 +111,12 @@
             mactor:object-become-unsealer
             mactor:object-become?
 
+            <mactor:asleep>
+            mactor:asleep?
+            make-mactor:asleep
+            mactor:asleep-constructor-refr
+            mactor:asleep-skeleton
+
             <m~eventual>
             make-m~eventual
             m~eventual?
@@ -192,6 +198,14 @@
             object-spec-constructor
             object-spec-rehydrator
 
+            <sleep-profile>
+            make-sleep-profile
+            sleep-profile?
+            sleep-profile-env
+            sleep-profile-store
+            sleep-profile-strategy
+            set-sleep-profile-strategy!
+
             <versioned>
             versioned
             versioned?
@@ -222,6 +236,21 @@
             persistence-error
             delta-before-graph-error
             empty-store-error))
+
+;; Sleepy actor types
+;; ==================
+;; The sleep profile is a wrapper record which contains all the information
+;; Goblins needs to sleep and restore actors. This is something the user will
+;; create and pass through to the vat (or maybe actormaps directly).
+(define-record-type <sleep-profile>
+  (make-sleep-profile env store strategy)
+  sleep-profile?
+  ;; (type: <persistence-env>) Needed by aurie to persist or restore.
+  (env sleep-profile-env)
+  ;; (type: a persistence store) Where to find the portrait of asleep actors
+  (store sleep-profile-store)
+  ;; Used to notify when actors are used and determine which actors to sleep.
+  (strategy sleep-profile-strategy set-sleep-profile-strategy!))
 
 ;; Actormaps, etc
 ;; ==============
@@ -441,7 +470,7 @@ Type: Any -> Boolean"
 ;;;  ____________________________  ___________________________
 ;;; |                            ||                           |
 ;;;
-;;; [aurie-local-link] .------------------->.        [object]
+;;; [aurie-local-link] .------------------->.   [object] <-> [asleep]
 ;;;                    |                    |
 ;;;                    |    .--.            |    .-->[local-link]
 ;;;     [naive]----->. |    v  |            |    |
@@ -486,6 +515,13 @@ Type: Any -> Boolean"
 ;;; broken. This isn't what we want so we can include the underlying portrait
 ;;; data in this mactor which Aurie can then use later when persisting this.
 ;;;
+;;; The mactor:object and mactor:asleep are inter-changable. This is because of
+;;; sleepy actors. When sleepy actors are enabled objects can be put to sleep,
+;;; when this happens they shift from mactor:object to mactor:asleep. When
+;;; something wakes the actor (e.g. invoking or messaging the actor), it moves
+;;; from mactor:asleep back to mactor:object. For more information see the
+;;; comment above mactor:asleep.
+;;;
 ;;; See also:
 ;;;  - The comments above each of these below
 ;;;  - "Miranda methods":
@@ -518,6 +554,21 @@ Type: Any -> Boolean"
   ;; `make-become-sealer-triplet', specific to this actor
   (become-unsealer mactor:object-become-unsealer)
   (become? mactor:object-become?))
+
+;; The Goblins persistence system supports "sleepy actors". Goblins can take the
+;; portrait of an actor and then its closure and other info doesn't need to be
+;; kept in memory. This allows Goblins to act almost like a hot cache system. The
+;; <mactor:asleep> represents an object which is in its asleep state. It
+;; contains the constructor-refr (for persistence reasons) and a skeleton which
+;; (strongly held) hash table containing local live refrs.
+;;
+;; The purpose of the skeleton is both for restoration (far refrs) and to
+;; prevent guile's GC collecting references held by asleep actors.
+(define-record-type <mactor:asleep>
+  (make-mactor:asleep constructor-refr skeleton)
+  mactor:asleep?
+  (constructor-refr mactor:asleep-constructor-refr)
+  (skeleton mactor:asleep-skeleton))
 
 ;; The other kinds of mactors correspond to promises and their resolutions.
 

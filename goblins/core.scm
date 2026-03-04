@@ -1707,6 +1707,48 @@ Type: Any -> Boolean"
 (define* (syscaller-set-closed! syscaller #:optional [val #t])
   (set-syscaller-closed?! syscaller val))
 
+;; TODO: Add the sleep profile to the syscaller.
+;; Currently the name doesn't sound like it makes sense, but eventually the
+;; sleep profile will be added to the syscaller, not passed in to this procedure
+;; manually.
+(define (syscaller-sleep-refr! syscaller refr sleep-profile)
+  (define am (syscaller-actormap syscaller))
+  (define env (sleep-profile-env sleep-profile))
+  (define current-mactor (actormap-ref-or-die am refr))
+  (unless (mactor:object? current-mactor)
+    (error (format #f "Can only sleep an awake object. Got ~a" current-mactor)))
+
+  ;; Now we need to make the skeleton. This is just a hash table with strong
+  ;; references to the other references within its self portrait to ensure
+  ;; they're not GC'd.
+  (define skeleton (make-hash-table))
+  (define (slot-ref refr)
+    (define slot (local-object-refr-aurie-id refr))
+    (hash-set! skeleton slot refr)
+    slot)
+  (define (far-refr-ref refr)
+    ;; We're curreently making a hash table for each vat and putting their
+    ;; aurie-id -> refr in that. It might be better to store it as
+    ;; (vat-id aurie-id), but obviously this would take more data with lots of
+    ;; references on the same vat.
+    ;; TODO: change if we get data deduplication (issue #935)
+    (match (far-refr-object-persistence-id refr)
+      ((vat-aurie-id object-aurie-id)
+       (match (hash-ref skeleton vat-aurie-id)
+         (#f
+          (let ((vat-skeleton (make-hash-table)))
+            (hash-set! vat-skeleton object-aurie-id refr)
+            (hash-set! skeleton vat-aurie-id vat-skeleton)))
+         (vat-skeleton (hash-set! vat-skeleton object-aurie-id refr)))
+       (list vat-aurie-id object-aurie-id))
+      (#f #f)))
+  ;; Actually generate its portrait. In doing this we're generating a skeleton.
+  (actormap-read-object-portrait am env refr slot-ref far-refr-ref)
+
+  (define asleep-mactor
+    (make-mactor:asleep (mactor:object-constructor-refr current-mactor)
+                        skeleton))
+  (actormap-set! am refr asleep-mactor))
 
 (define (call-with-fresh-syscaller am proc)
   (define sys (make-syscaller am))
@@ -2739,11 +2781,24 @@ Type: Actormap (-> Any) (Optional (#:catch-errors? Boolean)) -> Any"
   (make-persistence-env
    `(((namespace object) ,object) ...)))
 
-(define (actormap-read-object-portrait am persistence-env object slot-ref)
+(define (far-refr-object-persistence-id refr)
+  "Return a persistable far reference representation for @var{refr}."
+  (match (local-object-refr-vat-connector refr)
+    (#f #f)
+    (vat-connector
+     (match (vat-connector 'aurie-vat-id)
+       (#f #f)
+       (vat-aurie-id (list vat-aurie-id (local-object-refr-aurie-id refr)))))))
+
+(define* (actormap-read-object-portrait am persistence-env object slot-ref
+                                        #:optional
+                                        [far-refr-object-ref far-refr-object-persistence-id])
   (define slot (local-object-refr-aurie-id object))
   ;; A hash-table is used here to basically be a mutable set
   (define new-child-objects (make-hash-table))
   (define mactor (actormap-ref am object))
+  (unless (mactor:object? mactor)
+    (error "Can only read the portrait of an (awake) object"))
   (define debug-name (local-object-refr-debug-name object))
   (define take-object-portrait
     (mactor:object-self-portrait (or mactor
@@ -2806,12 +2861,9 @@ Type: Actormap (-> Any) (Optional (#:catch-errors? Boolean)) -> Any"
       [(and (? am-far-refr? refr) (? local-object-refr?))
        ;; Far refrs need to be serialized as a tuple of:
        ;; (<vat-aurie-id> <refr-aurie-id>)
-       (let* ((vat-connector (local-object-refr-vat-connector refr))
-              (vat-aurie-id (and vat-connector (vat-connector 'aurie-vat-id)))
-              (refr-aurie-id (local-object-refr-aurie-id refr)))
-         (if vat-aurie-id
-             (make-tagged* 'far vat-aurie-id refr-aurie-id)
-             (make-tagged* 'broken)))]
+       (match (far-refr-object-ref value)
+         (#f (make-tagged* 'broken))
+         (object-id (make-tagged 'far object-id)))]
       [(? local-promise-refr? vow)
        ;; The mactors can be difficult to follow, refer to world of mactors
        ;; comment in core-types.scm
