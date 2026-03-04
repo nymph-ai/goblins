@@ -963,8 +963,16 @@ Type: Any -> Boolean"
 ;; Do NOT export this esp under serious ocap confinement
 (define current-syscaller (make-parameter #f))
 
+;; This is used to set the sleep profile on the next syscaller.
+;; It's not really ideal to be a perameter, ideally it'd be a keyword argument
+;; on the various actormap procedures. The issue is those take rest arguments so
+;; we'd need to make a copy of every actormap procedure which takes a sleep
+;; profile. This would result in a massive amount of procedures being added, so
+;; for now we're using the parameter approach.
+(define current-sleep-profile (make-parameter #f))
+
 (define-record-type <syscaller>
-  (_make-syscaller actormap vat-connector new-msgs closed?)
+  (_make-syscaller actormap vat-connector new-msgs closed? sleep-profile)
   syscaller?
   ;; The actormap this syscaller is operating upon
   (actormap syscaller-actormap)
@@ -975,11 +983,17 @@ Type: Any -> Boolean"
   (new-msgs syscaller-new-msgs set-syscaller-new-msgs!)
   ;; Whether we have finished a turn (or whatever) on this actormap
   ;; and further operations on it should be disallowed
-  (closed? syscaller-closed? set-syscaller-closed?!))
+  (closed? syscaller-closed? set-syscaller-closed?!)
+  ;; Sleep profile
+  (sleep-profile syscaller-sleep-profile))
 
-(define (make-syscaller actormap)
+(define (make-syscaller actormap sleep-profile)
   "Construct a new syscaller which will operate on ACTORMAP"
-  (_make-syscaller actormap (actormap-vat-connector actormap) '() #f))
+  (_make-syscaller actormap
+                   (actormap-vat-connector actormap)
+                   '()
+                    #f
+                   sleep-profile))
 
 (define (syscaller-near-refr? syscaller refr)
   "Checks if OBJ is a local refr of SYSCALLER's actormap"
@@ -1707,12 +1721,11 @@ Type: Any -> Boolean"
 (define* (syscaller-set-closed! syscaller #:optional [val #t])
   (set-syscaller-closed?! syscaller val))
 
-;; TODO: Add the sleep profile to the syscaller.
-;; Currently the name doesn't sound like it makes sense, but eventually the
-;; sleep profile will be added to the syscaller, not passed in to this procedure
-;; manually.
-(define (syscaller-sleep-refr! syscaller refr sleep-profile)
+(define (syscaller-sleep-refr! syscaller refr)
   (define am (syscaller-actormap syscaller))
+  (define sleep-profile (syscaller-sleep-profile syscaller))
+  (unless sleep-profile
+    (error "Syscaller not configured with a sleep profile"))
   (define env (sleep-profile-env sleep-profile))
   (define current-mactor (actormap-ref-or-die am refr))
   (unless (mactor:object? current-mactor)
@@ -1750,8 +1763,12 @@ Type: Any -> Boolean"
                         skeleton))
   (actormap-set! am refr asleep-mactor))
 
-(define (call-with-fresh-syscaller am proc)
-  (define sys (make-syscaller am))
+(define (call-with-sleep-profile sleep-profile thunk)
+  (parameterize ([current-sleep-profile sleep-profile])
+    (thunk)))
+
+(define* (call-with-fresh-syscaller am proc)
+  (define sys (make-syscaller am (current-sleep-profile)))
   ;; The purpose of closing things is to detect certain kinds of errors
   ;; where the syscaller is captured and remains open post-execution.
   ;; However, it's kind of probabilistic to do this at all, since the
@@ -1765,7 +1782,8 @@ Type: Any -> Boolean"
     (lambda ()
       (set-syscaller-closed?! sys #f))
     (lambda ()
-      (parameterize ([current-syscaller sys])
+      (parameterize ([current-syscaller sys]
+                     [current-sleep-profile #f])
         (proc sys)))
     (lambda ()
       (set-syscaller-closed?! sys #t))))
