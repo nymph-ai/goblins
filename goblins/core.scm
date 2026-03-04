@@ -1,6 +1,6 @@
 ;;; Copyright 2019-2023 Christine Lemmer-Webber
 ;;; Copyright 2023 David Thompson
-;;; Copyright 2022-2025 Jessica Tallon
+;;; Copyright 2022-2026 Jessica Tallon
 ;;; Copyright 2023 Juliana Sims
 ;;;
 ;;; Licensed under the Apache License, Version 2.0 (the "License");
@@ -630,17 +630,20 @@ representing the generation after PARENT.
 Type: Actormap -> TransActormap"
   (define vat-connector (actormap-vat-connector parent))
   (_make-actormap transactormap-metatype
-                  (make-transactormap-data parent (make-hash-table)
-                                           (make-hash-table) #f)
+                  (make-transactormap-data parent
+                                           (make-hash-table)
+                                           (make-hash-table)
+                                           #f)
                   vat-connector
                   (actormap-aurie-counter parent)))
 
 (define (transactormap-reparent transactormap new-parent)
   (define vat-connector (actormap-vat-connector new-parent))
-  (define delta (transactormap-data-delta (actormap-data transactormap)))
+  (define tm-data (actormap-data transactormap))
+  (define delta (transactormap-data-delta tm-data))
+  (define messaged-refrs (transactormap-data-messaged-refrs tm-data))
   (_make-actormap transactormap-metatype
-                  (make-transactormap-data new-parent delta
-                                           (make-hash-table) #f)
+                  (make-transactormap-data new-parent delta messaged-refrs #f)
                   vat-connector
                   (actormap-aurie-counter transactormap)))
 
@@ -1810,7 +1813,7 @@ Type: Any -> Boolean"
   (define-values (restored-info new-am messages)
     (actormap-restore-object am env slot->value-ref slot->value-ref portrait))
   ;; Merge the restore into the syscaller's actormap.
-  (transactormap-merge! new-am #:into am)
+  (transactormap-buffer-merge! new-am)
   (match restored-info
     ((restored-refr _ _)
      ;; Similar to aurie upgrade (replace behavior). We need to set the refr we

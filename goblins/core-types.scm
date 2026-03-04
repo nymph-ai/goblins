@@ -209,6 +209,17 @@
             sleep-profile-strategy
             set-sleep-profile-strategy!
 
+            <sleep-strategy>
+            make-sleep-strategy
+            sleep-strategy?
+            sleep-strategy-make-stats
+            sleep-strategy-notify-ref
+            sleep-strategy-notify-spawned
+            sleep-strategy-notify-awoken
+            sleep-strategy-determine-sleep-refrs
+            sleep-strategy-make-new-stats
+            sleep-strategy-merge-stats!
+
             <versioned>
             versioned
             versioned?
@@ -335,6 +346,7 @@ Type: Any -> Boolean"
 
 (define (whactormap-for-each proc am)
   (hash-for-each proc (whactormap-data-wht (actormap-data am))))
+
 
 ;; This is effectively a no-op for whactormaps.
 (define (whactormap-on-message am refr)
