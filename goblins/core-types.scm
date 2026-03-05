@@ -38,6 +38,7 @@
             actormap-set!
             set-actormap-aurie-counter!
             actormap-for-each
+            actormap-on-message
 
             merge-actormap-aurie-counters!
             increment-actormap-aurie-counter!
@@ -68,6 +69,8 @@
             transactormap-data-merged?
             set-transactormap-data-merged?!
             transactormap-merged?
+            transactormap-on-message
+            transactormap-data-messaged-refrs
 
             <local-object-refr>
             make-local-object-refr
@@ -285,17 +288,22 @@
 ;;    (format port "#<actormap ~a>" (actormap-metatype-name (actormap-metatype am)))))
 
 (define-record-type <actormap-metatype>
-  (make-actormap-metatype name ref-proc set!-proc for-each-proc)
+  (make-actormap-metatype name ref-proc set!-proc on-message-proc for-each-proc)
   actormap-metatype?
   (name actormap-metatype-name)
   (ref-proc actormap-metatype-ref-proc)
   (set!-proc actormap-metatype-set!-proc)
+  (on-message-proc actormap-metatype-on-message-proc)
   (for-each-proc actormap-metatype-for-each-proc))
 
 (define (actormap-set! am key val)
   ((actormap-metatype-set!-proc (actormap-metatype am))
    am key val)
   *unspecified*)
+
+(define (actormap-on-message am refr)
+  ((actormap-metatype-on-message-proc (actormap-metatype am)) am refr)
+  (values))
 
 ;; (-> actormap? local-refr? (or/c mactor? #f))
 (define (actormap-ref am key)
@@ -328,22 +336,30 @@ Type: Any -> Boolean"
 (define (whactormap-for-each proc am)
   (hash-for-each proc (whactormap-data-wht (actormap-data am))))
 
+;; This is effectively a no-op for whactormaps.
+(define (whactormap-on-message am refr)
+  (values))
+
 (define whactormap-metatype
   (make-actormap-metatype 'whactormap whactormap-ref whactormap-set!
-                          whactormap-for-each))
+                          whactormap-on-message whactormap-for-each))
 
 ;; Transactional actormaps
 ;; =======================
 
 (define-record-type <transactormap-data>
-  (make-transactormap-data parent delta merged?)
+  (make-transactormap-data parent delta messaged-refrs merged?)
   transactormap-data?
   (parent transactormap-data-parent)
   (delta transactormap-data-delta)
+  (messaged-refrs transactormap-data-messaged-refrs)
   (merged? transactormap-data-merged? set-transactormap-data-merged?!))
 
 (define (transactormap-merged? transactormap)
   (transactormap-data-merged? (actormap-data transactormap)))
+
+(define (transactormap-on-message tm refr)
+  (hashq-set! (transactormap-data-messaged-refrs (actormap-data tm)) refr #t))
 
 ;; Ref(r)s
 ;; =======
