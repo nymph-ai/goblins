@@ -73,6 +73,8 @@
 
             spawn-promise-and-resolver
 
+            call-with-sleep-profile
+
             make-actormap-read-portrait!
             actormap-take-portrait-with-read-portrait
             actormap-take-portrait
@@ -80,10 +82,12 @@
             actormap-replace-behavior!
             actormap-restore!
             actormap-restore-object
+            actormap-restore-refrs-asleep!
             actormap-restore-with-far-refrs!
             actormap-restore-with-far-refrs!*
             actormap-restore-from-store!
             actormap-save-to-store!
+            actormap-bedtime!
 
             ;; TODO: separate this out!
             <message>
@@ -2877,6 +2881,141 @@ Type: Actormap (-> Any) (Optional (#:catch-errors? Boolean)) -> Any"
 (define-syntax-rule (namespace-env namespace object ...)
   (make-persistence-env
    `(((namespace object) ,object) ...)))
+
+(define (actormap-bedtime! am sleep-profile refrs)
+  "Put the list of @var{refrs} to sleep in @var{am}.
+
+The @var{sleep-profile} must be specified and it's expected the @var{refrs} are
+already stored within the store specified.
+
+Type: Actormap Sleep-Profile (List Actor ...) -> Void"
+  (call-with-sleep-profile
+   sleep-profile
+   (lambda ()
+     (call-with-fresh-syscaller
+      am
+      (lambda (sys)
+        (for-each
+         (lambda (refr)
+           (syscaller-sleep-refr! sys refr))
+         refrs))))))
+
+(define (actormap-restore-refrs-asleep! am portraits root-slots)
+  (define vat-connector (actormap-vat-connector am))
+  (define refrs->slots (make-weak-value-hash-table))
+  (define slots->refrs (make-hash-table))
+  (define far-refr-resolvers (make-hash-table))
+  (define far-refr-vows (make-hash-table))
+
+  (define (maybe-install-far-refr data)
+    (match (hash-ref far-refr-vows data)
+      (#f
+       (let*-values (((vow resolver) (spawn-promise-and-resolver))
+                     ((aurie-link)
+                      (make-mactor:aurie-local-link vow `(far ,data)))
+                     ((syscaller) (get-syscaller-or-die))
+                     ((refr) (syscaller-spawn-mactor syscaller aurie-link #f)))
+         (hash-set! far-refr-vows data refr)
+         (hash-set! far-refr-resolvers data resolver)
+         refr))
+      (refr refr)))
+
+
+  ;; Normally we'd use a promise, but we're not waking anything up so let's
+  ;; first create all the refrs, then make the asleep mactors. We do this
+  ;; because we need to build the skeleton which is a mapping of slot -> refr.
+  (hash-for-each
+   (lambda (slot portrait)
+     (define-values (obj-name debug-name obj-portrait-version obj-portrait)
+       (match portrait
+         ((name debug-name portrait-version portrait-data)
+          (values name debug-name portrait-version portrait-data))
+         (something-else
+          (persistence-error "Unknown portrait data" something-else))))
+     (define new-refr (make-local-object-refr debug-name vat-connector slot))
+     (hashq-set! refrs->slots new-refr slot)
+     (hash-set! slots->refrs slot new-refr))
+   portraits)
+
+  ;; We need to walk through the portrait data to build the skeleton for
+  ;; the object. We're only interested in finding all the refrs in the
+  ;; various supported data types, we don't need to do a full restore.
+  (define (extract-next data skeleton)
+    (match data
+      ((? pair?)
+       (for-each (lambda (elem)
+                   (extract-next elem skeleton))
+                 data)
+       skeleton)
+      ((? tagged?)
+       (let ((payload (tagged-data data)))
+         (match (tagged-label data)
+           ;; The following are just encoded as lists.
+           ('dotl (extract-next payload skeleton))
+           ('vec (extract-next payload skeleton))
+           ('list (extract-next payload skeleton))
+           ;; Handle the types which can't contain refrs
+           ('char skeleton)
+           ('zilch skeleton)
+           ('kw skeleton)
+           ;; Handle other types.
+           ('tagged (extract-next payload skeleton))
+           ('encase (extract-next payload skeleton))
+           ('near
+            (let* ((slot (car payload))
+                   (refr (hash-ref slots->refrs slot)))
+              (hash-set! skeleton slot refr))
+            skeleton)
+           ('far
+            (match payload
+              ((vat-id object-id)
+               (let ((refr (maybe-install-far-refr payload)))
+                 (match (hash-ref skeleton vat-id)
+                   ((? hash-table? vat-skeleton)
+                    (hash-set! vat-skeleton object-id refr))
+                   (#f
+                    (let ((ht (make-hash-table)))
+                      (hash-set! ht object-id refr)
+                      (hash-set! skeleton vat-id ht)))))))
+            skeleton)
+           (_ skeleton))))
+      ((? hashmap?)
+       (hashmap-fold
+        (lambda (key value prev)
+          (define next-skeleton (extract-next key prev))
+          (extract-next value next-skeleton))
+        skeleton
+        data))
+      ((? gset?)
+       (gset-fold
+        (lambda (item prev)
+          (extract-next item prev))
+        skeleton
+        data))
+      (_ skeleton)))
+
+  (define new-am (make-transactormap am))
+  (hash-for-each
+   (lambda (refr slot)
+     (define portrait (hash-ref portraits slot))
+     (define-values (obj-name debug-name obj-portrait-version obj-portrait)
+       (match portrait
+         ((name debug-name portrait-version portrait-data)
+          (values name debug-name portrait-version portrait-data))
+         (something-else
+          (persistence-error "Unknown portrait data" something-else))))
+     (define skeleton
+       (actormap-run!
+        new-am
+        (lambda ()
+          (extract-next obj-portrait (make-hash-table)))))
+     (define mactor (make-mactor:asleep #f skeleton))
+     (actormap-set! new-am refr mactor))
+   refrs->slots)
+
+  (transactormap-merge! new-am)
+  (define roots (map (lambda (slot) (hash-ref slots->refrs slot)) root-slots))
+  (values '() refrs->slots slots->refrs far-refr-resolvers roots))
 
 (define (far-refr-object-persistence-id refr)
   "Return a persistable far reference representation for @var{refr}."

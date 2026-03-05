@@ -17,11 +17,14 @@
 (define-module (tests test-core)
   #:use-module (goblins core)
   #:use-module (goblins core-types)
+  #:use-module (goblins persistence-store memory)
+  #:use-module (goblins sleep-strategies always)
   #:use-module (goblins abstract-types)
   #:use-module (goblins utils ghash)
   #:use-module (goblins utils hashmap)
   #:use-module (goblins ocapn ids)
   #:use-module (tests utils)
+
   #:use-module (ice-9 match)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-64)
@@ -1084,5 +1087,185 @@
          (vow (actormap-run! am (lambda () (spawn-promise-and-resolver)))))
     ;; vow's a promise not an actor refr...
     (refr-name vow)))
+
+;; Sleepy Actors
+;; -------------
+(define (hash-table-length ht)
+  (hash-fold
+   (lambda (key val prev)
+     (1+ prev))
+   0
+   ht))
+
+;; Check we can sleep an actor
+(define store (make-memory-store))
+(define sleep-profile (make-sleep-profile incrementer-env store (sleep:always)))
+(define am (make-actormap))
+(define inc
+  (call-with-sleep-profile
+   sleep-profile
+   (lambda ()
+     (define inc (actormap-spawn! am ^incrementer 72))
+     ;; Gotta make sure eva's in the store first.
+     (actormap-save-to-store! am greeter-env store inc)
+     inc)))
+
+;; Now sleep her to sleep.
+(actormap-bedtime! am sleep-profile (list inc))
+(test-assert "Check actormap-bedtime! puts refr to sleep"
+  (mactor:asleep? (actormap-ref am inc)))
+
+;; Check we can still invoke eva
+(test-equal "Check can use $ on asleep object"
+  73
+  (call-with-sleep-profile
+   sleep-profile
+   (lambda ()
+     (actormap-run
+      am
+      (lambda () ($ inc))))))
+
+;; We used actormap-run above, not actormap-run. Check the actor is still asleep
+(test-assert "Actors do not stay awake for non-committal actormap procedures"
+  (mactor:asleep? (actormap-ref am inc)))
+
+;; Test committal prcoedures do actually wake the refr up properly.
+(call-with-sleep-profile
+ sleep-profile
+ (lambda ()
+   (actormap-poke! am inc)))
+
+(test-assert "Actors stay awake after committal actormap procedures"
+  (mactor:object? (actormap-ref am inc)))
+
+;; Test waking up an actor with lots of nested data structures. This _should_
+;; more or less work since the sleep system doesn't need to do much extra beyond
+;; regular aurie, but test it anyway.
+(define (^ro-cell bcom data)
+  (define (self-portrait)
+    (list data))
+  (define (beh) data)
+  (portraitize beh self-portrait))
+(define env
+  (make-persistence-env
+   `((((tests test-core) ^cell) ,^ro-cell))))
+
+(define store (make-memory-store))
+(define sleep-profile (make-sleep-profile env store (sleep:always)))
+(define am (make-actormap))
+;; Spawn a bunch of actors to nest
+(define-values (obj0 obj1 obj2 obj3 obj4 obj5 obj6 obj7 obj8 obj9 obj10 vow0)
+  (call-with-sleep-profile
+   sleep-profile
+   (lambda ()
+     (define obj10 (actormap-spawn-named! am 'obj10 ^ro-cell #f))
+     (values (actormap-spawn-named! am 'obj0 ^ro-cell #f)
+             (actormap-spawn-named! am 'obj1 ^ro-cell #f)
+             (actormap-spawn-named! am 'obj2 ^ro-cell #f)
+             (actormap-spawn-named! am 'obj3 ^ro-cell #f)
+             (actormap-spawn-named! am 'obj4 ^ro-cell #f)
+             (actormap-spawn-named! am 'obj5 ^ro-cell #f)
+             (actormap-spawn-named! am 'obj6 ^ro-cell #f)
+             (actormap-spawn-named! am 'obj7 ^ro-cell #f)
+             (actormap-spawn-named! am 'obj8 ^ro-cell #f)
+             (actormap-spawn-named! am 'obj9 ^ro-cell #f)
+             obj10
+             ;; vow0
+             (actormap-churn-run!
+              am
+              (lambda ()
+                (define-values (vow resolver)
+                  (spawn-promise-and-resolver))
+                ($ resolver 'fulfill obj10)
+                vow))))))
+;; Spawn the actor with the nested data
+(define vec (make-vector 1))
+(vector-set! vec 0 obj2)
+(define nested-portrait-data-actor
+  (call-with-sleep-profile
+   sleep-profile
+   (lambda ()
+     (actormap-spawn! am ^ro-cell
+                      (list
+                       obj0
+                       (list obj1)
+                       vec
+                       (cons obj3 obj4)
+                       (make-tagged 'object5 obj5)
+                       (make-tagged obj6 'object6)
+                       (hashmap ('object-7 obj7))
+                       (hashqmap (obj8 'object-8))
+                       (make-gset obj9)
+                       ;; vow0 contains obj10
+                       vow0)))))
+
+;; This is for the next test, but it helps to do it here.
+(define-values (portraits root-slots)
+  (actormap-take-portrait am env nested-portrait-data-actor))
+
+(actormap-save-to-store! am env store nested-portrait-data-actor)
+(actormap-bedtime! am sleep-profile (list nested-portrait-data-actor))
+(define skeleton
+  (mactor:asleep-skeleton (actormap-ref am nested-portrait-data-actor)))
+(define restored-data
+  (call-with-sleep-profile
+   sleep-profile
+   (lambda ()
+     (actormap-poke! am nested-portrait-data-actor))))
+
+;; Match the data with the data above...
+(test-assert "Woken up actors have nested objects restored correctly"
+  (match restored-data
+    ((restored-obj0 (restored-obj1) restored-vec restored-cons restored-tagged0
+                    restored-tagged1 restored-hash0 restored-hash1 restored-gset
+                    restored-vow)
+     (and (eq? restored-obj0 obj0)
+          (eq? restored-obj1 obj1)
+          (eq? (vector-ref restored-vec 0) obj2)
+          (eq? (car restored-cons) obj3)
+          (eq? (cdr restored-cons) obj4)
+          (eq? (tagged-data restored-tagged0) obj5)
+          (eq? (tagged-label restored-tagged1) obj6)
+          (eq? (hashmap-ref restored-hash0 'object-7) obj7)
+          (eq? (hashmap-ref restored-hash1 obj8) 'object-8)
+          (equal? (gset-length restored-gset) 1)
+          (eq? (car (gset->list restored-gset)) obj9)
+          (eq? (match (am-resolve-vow-and-return-result am (lambda () restored-vow))
+                 (#(ok refr) refr)
+                 (_ #f))
+               obj10)))
+    (_ #f)))
+
+;; Check the skeleton on the mactor has all 9 objects that are in the portrait.
+(test-equal "Asleep actor has correct number of items in skeleton when nested"
+  11
+  (hash-table-length skeleton))
+
+;; Now try restoring the nested object in an "asleep" state. It relies on a
+;; sleep specific parser which should walk the portrait looking for refrs.
+(define new-am (make-actormap))
+(define-values (_changed-objs refrs->slots slots->refrs far-refr-resolvers roots)
+  (actormap-restore-refrs-asleep! new-am portraits root-slots))
+
+(define restored-nested-portrait-data-actor
+  (match roots
+    ((refr) refr)
+    (#f (error "Not the root I was expected"))))
+
+;; Check we've restored it as a asleep mactor
+(define mactor (actormap-ref new-am restored-nested-portrait-data-actor))
+(test-assert "actormap-restore-refrs-asleep! restored as an asleep refr"
+  (mactor:asleep? mactor))
+
+(define skeleton (mactor:asleep-skeleton mactor))
+(test-equal "restored asleep actor has the amount of refrs in skeleton as expected"
+  11
+  (hash-table-length skeleton))
+
+(define restored-data
+  (call-with-sleep-profile
+   sleep-profile
+   (lambda ()
+     (actormap-poke! new-am restored-nested-portrait-data-actor))))
 
 (test-end "test-goblins-core")
