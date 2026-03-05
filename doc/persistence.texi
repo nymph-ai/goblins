@@ -18,6 +18,7 @@ as a powerful tool for object upgrades and live hacking.
 * Persistence environments::
 * Upgrading through persistence::
 * Persistence stores::
+* Sleepy actors::
 @end menu
 
 @node Persistence tutorial
@@ -1184,3 +1185,77 @@ Return a local storage store which stores the data in the web browser's local
 storage, under the @var{name} key (must be a string).
 
 @end deffn
+
+@node Sleepy actors
+@subsection Sleepy actors
+
+Goblins has the ability to have actors enter a sleep state, and wake
+back up when they're needed. This allows the persistence system to act
+somewhat like a database's working set or a hot cache, where actors do
+not need to take up resources when not in use. When an actor is asleep
+only the reference and a small subset of the object remains. The
+local references an actor holds within its portrait are kept around in
+memory, however all the other portrait data as well as the behaviour
+closure will be freed. This allows sleeping actors to have a much
+smaller footprint.
+
+This functionality is particularly useful if, for example, you were to
+have a blog where all posts are actors. Much of the data is inert
+(largely textual in the case of blogs) and can be kept on disk, woken up
+only when needed. This would also be good for chat logs ActivityPub
+implementations, and many other situations.
+
+Goblins code can be written as normal using @code{$}, @code{<-}, or
+@code{<-np} with references (asleep or awake). If an object is asleep
+then it'll be restored to handle the message. After each churn, the vat
+will query the sleep strategy to determine which (if any) objects should
+be put to sleep. Goblins comes with sleep strategies out of the box. The
+sleep strategy is determined per vat when spawning.
+
+To use sleepy actors with a vat, you can enable it by simply specifying
+a sleep strategy. Here's how to use the @code{sleep:always}
+included with Goblins:
+@lisp
+(use-modules (goblins)
+             (goblins persistence-store memory)
+             (goblins sleep-strategies always)
+             (goblins actor-lib cell))
+
+(define store (make-memory-store))
+(define-values (vat cell)
+  (spawn-persistent-vat
+   cell-env
+   (lambda () (spawn ^cell (spawn ^cell 'inner)))
+   store
+   #:sleep-strategy sleep:always))
+@end lisp
+
+When a brand new vat is spawned, it initially spawns the objects from the
+thunk provided. These will initially be awake, after the first churn
+the sleep strategy will determine which actors will be put to sleep. When
+restoring a vat, all the actors will be restored asleep. Actors will then be
+woken up only after messaging them.
+
+
+@node Sleep Strategies
+@subsection Sleep Strategies
+
+Sleep strategies are what determine which objects should be kept awake
+and which should be put to sleep at the end of each churn. They are
+informed by Goblins when and how an object is used and then asked to
+provide a list of the objects which should be put to sleep. This allows
+for many different strategies to be used, depending on the needs of the
+program. It also allows bespoke strategies to be defined and used where
+existing ones aren't sufficient.
+
+@node Always
+@subsection Always
+
+This is provided by the @code{(goblins sleep-strategies always)}.
+
+@defvr {Variable} sleep:always
+
+This strategy, as the name implies, will put all possible objects asleep
+at the earliest opportunity.
+@end defvr
+
