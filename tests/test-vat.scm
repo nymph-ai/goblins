@@ -25,6 +25,7 @@
   #:use-module (goblins actor-lib methods)
   #:use-module (goblins actor-lib joiners)
   #:use-module (goblins persistence-store memory)
+  #:use-module (goblins sleep-strategies always)
   #:use-module (goblins utils hashmap)
   #:use-module (tests utils)
   #:use-module (fibers)
@@ -1486,5 +1487,81 @@
 (test-equal "Check message sent in actor upgrade that results in bcom is persisted"
   'sent-from-upgrade-me-migration
   (actormap-peek am* restored-upgrade-me-cell1))
+
+;; Test sleepy actors
+;; ------------------
+
+(define store (make-memory-store))
+(define-values (vat cell)
+  (spawn-persistent-vat
+   cell-env
+   (lambda ()
+     (spawn ^cell))
+   store
+   #:sleep-strategy (sleep:always)))
+
+(with-vat vat
+  ($ cell (spawn ^cell 'inner-cell)))
+
+;; A churn has happened and both the outer and inner cell should be asleep now.
+(define vat-actormap (@@ (goblins vat) vat-actormap))
+(define am (vat-actormap vat))
+(test-assert "Check sleepy vat puts refrs to bed after churn"
+  (mactor:asleep? (actormap-ref am cell)))
+
+(test-equal "Can wake up asleep refr in vat by using $"
+  'inner-cell
+  (with-vat vat
+    ($ ($ cell))))
+
+(vat-halt! vat)
+
+;; Test restoring them in asleep state
+(define-values (vat* cell*)
+  (spawn-persistent-vat
+   cell-env
+   (lambda ()
+     (spawn ^cell))
+   store
+   #:sleep-strategy (sleep:always)))
+
+(define am* (vat-actormap vat*))
+(test-assert "Check refr was stored asleep for vat configured with sleepy actors"
+  (mactor:asleep? (actormap-ref am* cell*)))
+
+;; Check far-refrs with sleepy vats
+(define aurie-vat (spawn-vat))
+(define aurie-registry
+  (with-vat aurie-vat
+    (spawn ^persistence-registry)))
+(define-values (vat-a cell-a)
+  (spawn-persistent-vat
+   cell-env
+   (lambda ()
+     (spawn-named 'cell-a ^cell 'cell-a))
+   (make-memory-store)
+   #:sleep-strategy (sleep:always)
+   #:persistence-registry aurie-registry))
+;; Ensure a churn happens so we get cell-a to sleep
+(with-vat vat-a ($ cell-a))
+
+(define-values (vat-b cell-b)
+  (spawn-persistent-vat
+   cell-env
+   (lambda ()
+     (spawn-named 'cell-b ^cell cell-a))
+   (make-memory-store)
+   #:sleep-strategy (sleep:always)
+   #:persistence-registry aurie-registry))
+;; Ensure a churn happens with vat-b to sleep everything
+(with-vat vat-b ($ cell-b))
+
+;; Finally test we can invoke cell-a through cell-b to check sleep and wakeup across vats
+(test-equal "Check sleep and wakeup across vats with sleepy actors configured"
+  #(ok cell-a)
+  (resolve-vow-and-return-result
+   vat-b
+   (lambda ()
+     (<- (<- cell-b)))))
 
 (test-end "test-vat")

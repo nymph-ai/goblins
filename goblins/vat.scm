@@ -1,5 +1,5 @@
 ;;; Copyright 2021-2022 Christine Lemmer-Webber
-;;; Copyright 2022-2024 Jessica Tallon
+;;; Copyright 2022-2026 Jessica Tallon
 ;;; Copyright 2023 David Thompson
 ;;; Copyright 2023 Juliana Sims
 ;;;
@@ -202,7 +202,7 @@
 (define-record-type <vat-persistence>
   (make-vat-persistence vat-aurie-id persistence-environ persist-on
                         store upgrader roots-version read-portrait!
-                        val->slot-ref roots)
+                        val->slot-ref roots sleep-profile)
   vat-persistence-env?
   ;; A permanent ID which other vats can use to reference a given vat.
   (vat-aurie-id vat-persistence-vat-aurie-id)
@@ -224,7 +224,9 @@
   (val->slot-ref vat-persistence-val->slot-ref
                  set-vat-persistence-val->ref!)
   ;; The root objects in the graph.
-  (roots vat-persistence-roots set-vat-persistence-roots!))
+  (roots vat-persistence-roots set-vat-persistence-roots!)
+  ;; The sleep profile when configured as a sleepy vat
+  (sleep-profile vat-persistence-sleep-profile))
 
 ;; Vat event logging
 ;; =================
@@ -750,6 +752,8 @@ Type: Vat -> Void"
   (define far-q (make-q))
   (define am (vat-actormap vat))
   (define snapshot (and log? (copy-whactormap am)))
+  (define sleep-profile
+    (and=> (vat-persistence-env vat) vat-persistence-sleep-profile))
   (define new-am (make-transactormap am))
   (define this-vat-connector (actormap-vat-connector am))
   (define (near-msg? msg)
@@ -816,10 +820,15 @@ Type: Vat -> Void"
     (make-vat-event 'receive churn-id received-at sent-at msg snapshot))
   (when log?
     (vat-log-append! vat init-event #f))
-  (define result (turn init-event))
-  ;; Turn as many additional times as it takes to run this vat to
-  ;; quiescence.
-  (churn)
+  (define result
+    (call-with-sleep-profile
+     sleep-profile
+     (lambda ()
+       (define result (turn init-event))
+       ;; Turn as many additional times as it takes to run this vat to
+       ;; quiescence.
+       (churn)
+       result)))
   ;; Dispatch far messages.
   (let loop ()
     (unless (q-empty? far-q)
@@ -831,8 +840,24 @@ Type: Vat -> Void"
   ;; Persist the changes if needed.
   (vat-maybe-persist-changed-objs! vat new-am)
 
+  ;; Maybe put refrs to sleep depending on the strategy (if configured)
+  (vat-maybe-bedtime! vat new-am)
+
   ;; And now let's return everything...
   (values result new-am))
+
+(define (vat-maybe-bedtime! vat actormap)
+  (define vat-persistence (vat-persistence-env vat))
+  (define val->slot-ref (and=> vat-persistence vat-persistence-val->slot-ref))
+  (when (and vat-persistence val->slot-ref)
+    (match (vat-persistence-sleep-profile vat-persistence)
+      (#f #f)
+      (sleep-profile
+       (actormap-bedtime! actormap
+                          sleep-profile
+                          ((sleep-profile-strategy sleep-profile)
+                           actormap
+                           val->slot-ref))))))
 
 (define (vat-start! vat)
   "Start processing turns for VAT.
@@ -1397,38 +1422,43 @@ Type: (Optional (#:name (U String Symbol)) (Optional (#:log? Boolean))
                                (vat-constructor spawn-fibrous-vat)
                                name log? (log-capacity default-log-capacity)
                                persistence-registry
-                               upgrade [version 0])
-  "Create and return a reference to a new vat with persistence. All
-objects spawned on the vat that will persist must be persistence
-aware. The objects local to the vat must be in PERSISTENCE-ENV which is used
-when the vat takes the portrait and rehydrates objects.
+                               upgrade [version 0]
+                               sleep-strategy)
+  "Create and return a reference to a new vat with persistence. All objects
+spawned on the vat that will persist must be persistence aware. The objects
+local to the vat must be in @var{persistence-env} which is used when the vat
+takes the portrait and rehydrates objects.
 
-The SPAWN-ROOT-THUNK perameter will be run within the vat
-environment and should spawn one or more values which are the root
-objects to be persisted.
+The @var{spawn-root-thunk} perameter will be run within the vat environment and
+should spawn one or more values which are the root objects to be persisted.
 
-STORE is a storage backend mechanism which matches the persistence
-store interface.
+@var{store} is a storage backend mechanism which matches the persistence store
+interface.
 
-If PERSIST-ON is not provided persistence will happen on every churn
-of the vat. If this is #f, no automatic persistence mechanism
-will occur and this should be handled manually.
+If @var{persist-on} is not provided persistence will happen on every churn of
+the vat. If this is #f, no automatic persistence mechanism will occur and this
+should be handled manually.
 
-If provided, NAME is the debug name of the vat. If LOG? is #t, log
-vat events, otherwise do not. If provided, LOG-CAPACITY is the number
-of events to retain in the log.
+If provided, @var{name} is the debug name of the vat. If @var{log?} is #t, log
+vat events, otherwise do not. If provided, @var{log-capacity} is the number of
+events to retain in the log.
 
-If the PERSISTENCE-REGISTRY is provided, it will register this vat with the
-registry to allow for both this vat and others who share the same registry
+If the @var{persistence-registry} is provided, it will register this vat with
+the registry to allow for both this vat and others who share the same registry
 to both persist and rehydrate local far refrs (i.e. refrs on other local vats).
 This value should be the refr of a spawned ^persistence-registry object.
 
-If UPGRADE is provided, upon restoration the vat will check the version of the
-graph roots read from the store, if that version does not match VERSION then the
-upgrade procedure will be called, this procedure should take in the current
-version of the roots and then the roots and return two values, the new version
-and a list of the new root data. This procedure matches that which is produced
-using the migrations macro."
+If @var{upgrade} is provided, upon restoration the vat will check the version of
+the graph roots read from the store, if that version does not match
+@var{version} then the upgrade procedure will be called, this procedure should
+take in the current version of the roots and then the roots and return two
+values, the new version and a list of the new root data. This procedure matches
+that which is produced using the migrations macro.
+
+If @var{sleep-strategy} is specified the vat will be spawned with sleepy actors
+enabled. This means that when restoring the objects within the vat, they'll be
+restored in an asleep state. Actors then will be woken up when used and put back
+to sleep according to the specified sleep strategy."
   ;; We should either restore from the data in the store if that exists,
   ;; or we should spawn the roots by using `spawn-roots-lambda'.
   (define read-from-store
@@ -1441,10 +1471,14 @@ using the migrations macro."
         vat-aurie-id
         (strong-random-bytes 32)))
 
+  (define sleep-profile
+    (and sleep-strategy
+        (make-sleep-profile persistence-env store sleep-strategy)))
+
   (define vat-persistence
     (make-vat-persistence current-vat-aurie-id persistence-env
                           persist-on store upgrade version #f
-                          #f #f))
+                          #f #f sleep-profile))
   (define vat
     (vat-constructor
      #:persistence-env vat-persistence
@@ -1460,8 +1494,17 @@ using the migrations macro."
                       (define vat-am (vat-actormap vat))
                       (call-with-values
                           (lambda ()
-                            (actormap-restore-with-far-refrs!*
-                             vat-am persistence-env portraits root-slots))
+                            ;; If we're setup with a sleep profile, let's leave
+                            ;; everything asleep. Otherwise restore as normal
+                            (if sleep-profile
+                                ;; It'd be good to be able to query the sleep
+                                ;; strategy to determine what refrs want to be
+                                ;; awake or sleep on spawn. That's not currently
+                                ;; possible but TODO for later when it is.
+                                (actormap-restore-refrs-asleep!
+                                 vat-am portraits root-slots)
+                                (actormap-restore-with-far-refrs!*
+                                 vat-am persistence-env portraits root-slots)))
                         list)))
           [(changed-objects refrs->slots slots->refrs far-refr-resolvers roots)
            (define-values (read-portrait! val->slot-ref)
