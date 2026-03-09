@@ -35,6 +35,7 @@
           (goblins actor-lib swappable)
           (goblins contrib syrup)
           (goblins ocapn ids)
+          (prefix (goblins ocapn captp-types) captp:)
           (goblins utils base32)
           (goblins utils crypto)
           (goblins utils hashmap)
@@ -64,6 +65,20 @@
   (begin
     (define (warn message)
       (format (current-error-port) "warning: ~a\n" message))
+
+    (define-syrup-record-type <init:peer-auth>
+      (init:peer-auth payload)
+      init:peer-auth?
+      init:peer-auth
+      marshall::init:peer-auth unmarshall::init:peer-auth
+      (payload init:peer-auth-payload))
+
+    (define marshallers
+      (cons marshall::init:peer-auth
+            captp:marshallers))
+    (define unmarshallers
+      (cons unmarshall::init:peer-auth
+            captp:unmarshallers))
 
     (cond-expand
      (guile)
@@ -117,14 +132,25 @@
             (spawn-fibrous-vow
              (lambda ()
                ;; Read a message from the client which should be a
-               ;; bytevector.  Send it back signed for the client
+               ;; <init:peer-auth> message encoded with syrup. We'll sign it
+               ;; (wrapped in desc:sig-envelope) and returning it for the client
                ;; to verify.
-               (let ((bv (websocket-receive ws #:wait-for-port wait-for-port)))
-                 (unless (and (bytevector? bv) (= (bytevector-length bv) 64))
+               (let* ((bv (websocket-receive ws #:wait-for-port wait-for-port))
+                      (to-sign-msg
+                       (and bv (syrup-decode bv #:unmarshallers unmarshallers))))
+                 (unless (init:peer-auth? to-sign-msg)
                    (close-websocket ws)
                    (error "invalid client verification message"))
                  (let ((sig (sign bv (key-pair->private-key designator-key))))
-                   (websocket-send ws (syrup-encode sig) #:mask? #f))
+                   (websocket-send
+                    ws
+                    ;; Technically we're sending more data than we need to as it
+                    ;; isn't necessary to send the to-sign-msg back but we're
+                    ;; reusing desc:sig-envelope which does. Maybe consider
+                    ;; making our signature record at some point?
+                    (syrup-encode (captp:desc:sig-envelope to-sign-msg sig)
+                                  #:marshallers marshallers)
+                    #:mask? #f))
                  #t))))
           (on (verify-designator)
               (lambda (_)
@@ -278,19 +304,24 @@
       (spawn-fibrous-vow
        (lambda ()
          (define (verify-designator ws)
-           ;; Send some random bytes to the server.  The server
-           ;; should return a signature for those bytes which we
-           ;; will match against the public key encoded in the peer
+           ;; Send some random bytes to the server. The bytes are wrapped in a
+           ;; special <init:peer-auth> record as to prevent the signing oracle
+           ;; attack it should be typed. The server will then return a signature
+           ;; which we will match against the public key encoded in the peer
            ;; designator.
-           (let ((bv (strong-random-bytes 64)))
-             (websocket-send ws bv)
+           (let* ((to-sign (init:peer-auth (strong-random-bytes 32)))
+                  (to-sign-msg (syrup-encode to-sign #:marshallers marshallers)))
+             (websocket-send ws to-sign-msg)
              (let ((sig
                     (match (websocket-receive ws #:wait-for-port wait-for-port)
-                      ((? bytevector? bv) (syrup-decode bv))
+                      ((? bytevector? bv)
+                       (syrup-decode bv #:unmarshallers unmarshallers))
                       (_ #f))))
                (unless (and sig
-                            (verify (captp-signature->crypto-signature sig)
-                                    bv
+                            (captp:desc:sig-envelope? sig)
+                            (verify (captp-signature->crypto-signature
+                                     (captp:desc:sig-envelope-signature sig))
+                                    to-sign-msg
                                     (bytevector->crypto-public-key
                                      (base32-decode designator))))
                  (close-websocket ws)
