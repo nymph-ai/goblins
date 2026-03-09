@@ -3205,10 +3205,16 @@ Type: Actormap PersistenceEnv -> Void"
   (define restore-queue (make-q))
   (define vat-connector (actormap-vat-connector am))
   (define slots->resolvers (make-hash-table))
-  (define changed-objects (make-weak-key-hash-table))
+  ;; Lifespan of the changed objects hash table isn't past the end of the
+  ;; procedure so strong references don't matter
+  (define changed-objects (make-hash-table))
   ;; This should be a strong hash table so we're holding onto the
   ;; refrs we're restoring and the GC won't collect them.
   (define slots->refrs (make-hash-table))
+  ;; It's important for this to be a weak hash table as it's expected to be
+  ;; returned from this procedure and likely passed into
+  ;; make-actormap-read-portrait! which will keep hold of it for the vats
+  ;; lifetime.
   (define refrs->slots (make-weak-value-hash-table))
   (define (maybe-install-refr-for-slot! slot)
     (match (hashq-ref slots->refrs slot)

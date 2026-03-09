@@ -274,7 +274,7 @@
 
 (define (actormap-for-each proc am)
   ((actormap-metatype-for-each-proc (actormap-metatype am)) proc am)
-  *unspecified*)
+  (values))
 
 (define-record-type <whactormap-data>
   (make-whactormap-data wht)

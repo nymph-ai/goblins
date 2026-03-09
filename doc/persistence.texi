@@ -883,10 +883,9 @@ references within a vat. This ensures references only held by far vats
 are kept around until all the vats are spawned. A consequence of this
 design is that if the reference to the persistence registry is kept
 around, the initial graph of actors in vats can never be garbage
-collected. To ensure that garbage collection can run and old references
-collected, it's important to let go of the reference to the
+collected. Thus, it's important to let go of the reference to the
 @code{^persistence-registry} actor once all the vats which need it have
-been spawened.
+been spawned.
 
 @end deffn
 

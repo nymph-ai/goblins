@@ -1520,6 +1520,13 @@ using the migrations macro."
                  (make-register-request
                   current-vat-aurie-id
                   (or slots->refrs
+                      ;; If we're spawning the vat for the first time the
+                      ;; persistence code hasn't run and so we have to make the
+                      ;; table here.
+                      ;; Since we're spawning anew, others vats won't have
+                      ;; references so it's unlikely the aurie registery will
+                      ;; need these references, but it's possible (if you
+                      ;; respawn other vats) so we'll do it anyway.
                       (let ((ht (make-hash-table)))
                         (actormap-for-each
                          (lambda (refr mactor)
