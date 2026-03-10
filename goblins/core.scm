@@ -497,6 +497,12 @@ Type: (Optional Syscaller) -> WHActormap"
                   (actormap-vat-connector am)
                   (actormap-aurie-counter am)))
 
+(define-syntax-rule (actormap-error am message)
+  (raise-exception
+   (make-exception
+    (make-exception-with-message message)
+    (make-exception-with-irritants (list am)))))
+
 
 
 
@@ -564,21 +570,33 @@ Type: TransActormap -> Void"
        (eq? (actormap-metatype am) transactormap-metatype)))
 
 (define (transactormap-buffer-merge! transactormap)
-  "Merge TRANSACTORMAP against its parent buffer (also a
-transactormap).
+  "Merge @var{transactormap} against its parent actormap.
 
 Type: TransActormap -> Void"
   (define tm-data (actormap-data transactormap))
   (define parent (transactormap-data-parent tm-data))
-  (define parent-mtype (actormap-metatype parent))
-  (unless (eq? parent-mtype transactormap-metatype)
-    (error "Can only do a buffered merge against another transactormap"))
-  (when (or (transactormap-data-merged? tm-data)
-            (transactormap-data-merged? (actormap-data parent)))
-    (error "Transactormap already merged!"))
+  ;; We could use actormap-set! but that looks up the metatype and extracts the
+  ;; set procedure for every value set. This is used in the fast path in churns
+  ;; so lets extract it and reuse it.
+  (define parent-actormap-set!
+    (match parent
+      ((? transactormap?)
+       ;; Check the parent isn't merged.
+       (when (transactormap-data-merged? (actormap-data parent))
+         (actormap-error parent "Transactormap already merged"))
+       transactormap-set!)
+      ((? whactormap?) whactormap-set!)
+      (_
+       (actormap-error
+        parent
+        "transactormap-buffer-merge! does not support transactormap type"))))
+
+  (when (transactormap-data-merged? tm-data)
+    (actormap-error transactormap "Transactormap already merged"))
+
   (hash-for-each
    (lambda (key val)
-     (transactormap-set! parent key val))
+     (parent-actormap-set! parent key val))
    (transactormap-data-delta tm-data))
   (merge-actormap-aurie-counters! parent transactormap)
   (set-transactormap-data-merged?! tm-data #t))
@@ -2205,7 +2223,7 @@ Type: Actormap Constructor Any ... -> Actor"
   (define debug-name (procedure-name actor-constructor))
   (define-values (actor-refr new-actormap)
     (actormap-spawn-named* actormap debug-name actor-constructor args))
-  (transactormap-merge! new-actormap)
+  (transactormap-buffer-merge! new-actormap)
   actor-refr)
 (define (actormap-spawn-named! actormap name actor-constructor . args)
   "Construct an actor using @var{actor-constructor} inside @var{actormap}
@@ -2215,7 +2233,7 @@ passing in @var{args}. The resulting actor is spawned with  debug name
 Type: Actormap Any Constructor Any ... -> Actor"
   (define-values (actor-refr new-actormap)
     (actormap-spawn-named* actormap name actor-constructor args))
-  (transactormap-merge! new-actormap)
+  (transactormap-buffer-merge! new-actormap)
   actor-refr)
 
 (define* (actormap-spawn-mactor! actormap mactor
@@ -2285,7 +2303,7 @@ Type: Actormap Actor Any ... -> Any"
   (define-values (returned-val transactormap _nm)
     (actormap-turn* (make-transactormap actormap)
                     to-refr args))
-  (transactormap-merge! transactormap)
+  (transactormap-buffer-merge! transactormap)
   returned-val)
 
 (define (actormap-reckless-poke! actormap to-refr . args)
@@ -2616,10 +2634,10 @@ Type: Actormap (-> Any) (Optional (#:catch-errors? Boolean)) -> Any"
   (match returned-val
     ;; kluge to handle the coroutine case
     [#('ok (? multival-return-kluge? mrk))
-     (transactormap-merge! new-actormap)
+     (transactormap-buffer-merge! new-actormap)
      (apply values (multival-return-kluge-vals mrk))]
     [#('ok rval)
-     (transactormap-merge! new-actormap)
+     (transactormap-buffer-merge! new-actormap)
      rval]
     [#('fail err)
      ;; re-raise exception
@@ -3030,7 +3048,7 @@ rehydrates them with the new behavior.
 
 Type: Actormap PersistenceEnv -> Void"
   (define tm (actormap-replace-behavior am persistence-env))
-  (transactormap-merge! tm))
+  (transactormap-buffer-merge! tm))
 
 (define (depictable-atom? obj)
   (or (number? obj) (boolean? obj) (string? obj)
@@ -3242,7 +3260,7 @@ Type: Actormap PersistenceEnv -> Void"
            (hashq-set! changed-objects refr #t))
          (values restored-refr version updated?))))
 
-    (transactormap-merge! new-am)
+    (transactormap-buffer-merge! new-am)
     (enq-msgs! (reverse new-msgs))
 
     ;; Install the mactor in the refr we created.
@@ -3277,7 +3295,7 @@ Type: Actormap PersistenceEnv -> Void"
                 (hashq-set! changed-objects refr #t)))
             (transactormap-data-delta am-data)))
 
-         (transactormap-merge! new-am))
+         (transactormap-buffer-merge! new-am))
         (_ (values)))
       (enq-msgs! new-msgs)))
 
