@@ -1199,13 +1199,16 @@ object reference.
 
 @end deffn
 
-Once objects have been put into an @emph{actormap}, they may be invoked
-to perform some action or other.  There are several ways to do this,
+Once objects have been put into an @emph{actormap}, they may be
+invoked to perform some action .  There are several ways to do this,
 falling into one of two general categories: @emph{turn}s and
-@emph{churn}s.  A @dfn{turn} can be thought of as the performance of a
-single action, or the processing of a single message.  A @dfn{churn}
-is best understand in terms of a @emph{turn} as all @emph{turn}s a given
-@emph{actormap} can handle without invoking @emph{far} objects.
+@emph{churn}s.  A @dfn{turn} is the processing of a single message.  A
+turn may generate additional @emph{near} or @emph{far} messages to be
+dispatched afterwards.  A @dfn{churn} starts with a turn but then
+takes additional turns to process all subsequent near messages (which
+may in turn generate even more messages), halting when only far
+messages remain.  In other words, a churn is a loop that takes one or
+more turns until it reaches @emph{quiescence}.
 
 @deffn {Procedure} actormap-turn* actormap to-refr args
 
