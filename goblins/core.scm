@@ -1137,6 +1137,11 @@ Type: Any -> Boolean"
                          (mactor:object-become? mactor))))
 
        return-val)]
+    ;; If the actor is asleep, we need to wake it up and then dispatch the
+    ;; message to it.
+    [(? mactor:asleep?)
+     (syscaller-wake-refr! syscaller to-refr)
+     (syscaller-$ syscaller to-refr args)]
     ;; If it's an encased value, "calling" it just returns the
     ;; internal value.
     [(? mactor:encased?)
@@ -1432,7 +1437,8 @@ Type: Any -> Boolean"
       ;; that's effectively the same code we'd be running anyway.
       ;; However, we do want to handle the resolution.
       [(or (? mactor:object?)
-           (? mactor:encased?))
+           (? mactor:encased?)
+           (? mactor:asleep?))
        (call-with-resolution
         (lambda () (syscaller-$ syscaller to-refr args)))]
       [(? mactor:aurie-local-link?)
@@ -1642,7 +1648,7 @@ Type: Any -> Boolean"
        (syscaller-<-np syscaller listener (list 'break (mactor:broken-problem mactor)))]
       [(? mactor:encased? mactor)
        (syscaller-<-np syscaller listener (list 'fulfill (mactor:encased-val mactor)))]
-      [(? mactor:object? mactor)
+      [(or (? mactor:object?) (? mactor:asleep?))
        (syscaller-<-np syscaller listener (list 'fulfill to-refr))]
       ;; For remote links, we resolve directly to that reference
       [(? mactor:remote-link? mactor)
@@ -1722,6 +1728,7 @@ Type: Any -> Boolean"
   (set-syscaller-closed?! syscaller val))
 
 (define (syscaller-sleep-refr! syscaller refr)
+  "Sleep @var{refr} within the @var{syscaller}'s actormap."
   (define am (syscaller-actormap syscaller))
   (define sleep-profile (syscaller-sleep-profile syscaller))
   (unless sleep-profile
@@ -1762,6 +1769,47 @@ Type: Any -> Boolean"
     (make-mactor:asleep (mactor:object-constructor-refr current-mactor)
                         skeleton))
   (actormap-set! am refr asleep-mactor))
+
+(define (syscaller-wake-refr! syscaller refr)
+  "Wake up the sleeping @var{refr} within @var{syscaller}'s actormap"
+  (define am (syscaller-actormap syscaller))
+  (define current-mactor (actormap-ref-or-die am refr))
+  (define sleep-profile (syscaller-sleep-profile syscaller))
+  (unless sleep-profile
+    (error "Syscaller not configured with a sleep profile"))
+  (unless (mactor:asleep? current-mactor)
+    (error (format #f "Can only wake up actor that's asleep, got ~a"
+                   current-mactor)))
+  (define skeleton (mactor:asleep-skeleton current-mactor))
+  (define refr-aurie-id (local-object-refr-aurie-id refr))
+  (define (slot->value-ref slot)
+    (match slot
+      ((vat-aurie-id object-aurie-id)
+       (let ((vat-skeleton (hash-ref skeleton vat-aurie-id)))
+         (and vat-skeleton (hash-ref vat-skeleton object-aurie-id))))
+      ((? number?)
+       (hash-ref skeleton slot))))
+
+  (define env (sleep-profile-env sleep-profile))
+  (define store (sleep-profile-store sleep-profile))
+  (define store-read (persistence-store-read-proc store))
+  (define portrait (store-read 'object-portrait refr-aurie-id))
+  (define-values (restored-info new-am messages)
+    (actormap-restore-object am env slot->value-ref slot->value-ref portrait))
+  ;; Merge the restore into the syscaller's actormap.
+  (transactormap-merge! new-am #:into am)
+  (match restored-info
+    ((restored-refr _ _)
+     ;; Similar to aurie upgrade (replace behavior). We need to set the refr we
+     ;; have to restored object mactor, but we need to link the old refr in the
+     ;; case that it's been given out.
+     (actormap-set! am refr (actormap-ref am restored-refr))
+     (actormap-set! am restored-refr (make-mactor:local-link refr))))
+  ;; Queue messages sent upon restoration on the syscaller.
+  (for-each
+   (lambda (message)
+     (syscaller-queue-new-msg! syscaller message))
+   messages))
 
 (define (call-with-sleep-profile sleep-profile thunk)
   (parameterize ([current-sleep-profile sleep-profile])
@@ -2029,7 +2077,7 @@ Type: Promise (Optional (Any -> Any))
 
   (define mactor (actormap-ref-or-die actormap to))
   (match mactor
-    [(or (? mactor:object?) (? mactor:remote-link?))
+    [(or (? mactor:object?) (? mactor:remote-link?) (? mactor:asleep?))
      ;; Cannot work on an object, so we break the promise
      (<-np resolver 'break (format #f "Expected ~a but got an object ~a" type to))]
     [(? mactor:question?)
@@ -2303,7 +2351,7 @@ Type: Actormap Any Constructor Any ... -> Actor"
   (define vat-connector
     (actormap-vat-connector actormap))
   (define actor-refr
-    (if (mactor:object? mactor)
+    (if (or (mactor:object? mactor) (mactor:asleep? mactor))
         (make-local-object-refr debug-name vat-connector
                                 (increment-actormap-aurie-counter! actormap))
         (make-local-promise-refr vat-connector)))
