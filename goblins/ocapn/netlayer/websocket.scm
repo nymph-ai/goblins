@@ -35,6 +35,7 @@
           (goblins actor-lib swappable)
           (goblins contrib syrup)
           (goblins ocapn ids)
+          (goblins ocapn netlayer websocket-utils)
           (prefix (goblins ocapn captp-types) captp:)
           (goblins utils base32)
           (goblins utils crypto)
@@ -65,13 +66,6 @@
   (begin
     (define (warn message)
       (format (current-error-port) "warning: ~a\n" message))
-
-    (define-syrup-record-type <init:peer-auth>
-      (init:peer-auth payload)
-      init:peer-auth?
-      init:peer-auth
-      marshall::init:peer-auth unmarshall::init:peer-auth
-      (payload init:peer-auth-payload))
 
     (define marshallers
       (cons marshall::init:peer-auth

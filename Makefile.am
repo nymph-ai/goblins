@@ -84,6 +84,7 @@ SOURCES = goblins.scm \
           goblins/ocapn/netlayer/base-port.scm \
           goblins/ocapn/netlayer/fake.scm \
           goblins/ocapn/netlayer/websocket.scm \
+          goblins/ocapn/netlayer/websocket-utils.scm \
           goblins/ocapn/netlayer/onion-socks.scm \
           goblins/ocapn/netlayer/onion.scm \
           goblins/ocapn/netlayer/libp2p.scm \
