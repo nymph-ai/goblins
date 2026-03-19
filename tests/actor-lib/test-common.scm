@@ -18,7 +18,8 @@
   #:use-module (goblins utils ghash)
   #:use-module (goblins actor-lib common)
   #:use-module (tests utils)
-  #:use-module (srfi srfi-64))
+  #:use-module (srfi srfi-64)
+  #:use-module (srfi srfi-1))
 
 (test-begin "test-common")
 
@@ -31,9 +32,36 @@
 (test-equal #t (actormap-peek am s 'member? 'd))
 (actormap-poke! am s 'remove 'c)
 (test-equal #f (actormap-peek am s 'member? 'c))
-(test-equal "Getting the list of a ^seteq instance"
-  (list 'd 'b 'a)
-  (actormap-peek am s 'as-list))
+(test-assert "Getting the list of a ^seteq instance"
+  (lset= eq?
+         '(a b d)
+         (actormap-peek am s 'as-list)))
+(actormap-poke! am s 'add 'a)
+(actormap-poke! am s 'add 'a)
+(test-equal "Adding an existing element ('a) should not change set size"
+            3
+            (length (actormap-peek am s 'as-list)))
+(test-assert "Content remains the same after duplicate adds"
+             (lset= eq? '(a b d) (actormap-peek am s 'as-list)))
+(actormap-poke! am s 'add 'e)
+(actormap-poke! am s 'add 'e)
+(actormap-poke! am s 'remove 'e)
+(test-equal "Element 'e should be completely gone after one remove"
+            #f
+            (actormap-peek am s 'member? 'e))
+(test-equal "Size should return to 3 after adding and removing 'e"
+            3
+            (length (actormap-peek am s 'as-list)))
+(actormap-poke! am s 'remove 'a)
+(actormap-poke! am s 'remove 'b)
+(actormap-poke! am s 'remove 'd)
+(test-equal "An empty set should have length 0"
+            0
+            (length (actormap-peek am s 'as-list)))
+(test-equal "As-list of an empty set should be an empty list"
+            '()
+            (actormap-peek am s 'as-list))
+
 (define ghash (actormap-spawn! am ^ghash))
 (test-equal "Check key that doesn't exist provides #f when lacking a default"
   #f

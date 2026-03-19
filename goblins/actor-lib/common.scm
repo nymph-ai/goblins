@@ -27,33 +27,33 @@
             ^vector
             common-env))
 
-(define (list->vhash lst)
-  (fold (lambda (i vh)
-          (vhash-consq i #t vh))
-        vlist-null
+(define (list->hashqmap lst)
+  (fold (lambda (i hm)
+          (hashmap-set hm i #t))
+        (make-hashqmap)
         lst))
 
-(define (vhash->list vh)
-  (vhash-fold (lambda (k v lst)
-                (cons k lst))
-              (list)
-              vh))
+(define (hashmap->list hm)
+  (hashmap-fold (lambda (k v lst)
+                  (cons k lst))
+                (list)
+                hm))
 
-(define-actor (^seteq* bcom vh)
-  ;; Vhashes don't have a readable format, so use ^seteq as a wrapper to aid
+(define-actor (^seteq* bcom hm)
+  ;; Hashmaps don't have a readable format, so use ^seteq as a wrapper to aid
   ;; persistence.
-  #:portrait (lambda () (vhash->list vh))
+  #:portrait (lambda () (hashmap->list hm))
   #:restore (lambda (version . args)
-              (spawn ^seteq* (list->vhash args)))
+              (spawn ^seteq* (list->hashqmap args)))
   (methods
    [(add val)
-    (bcom (^seteq* bcom (vhash-consq val #t vh)))]
+    (bcom (^seteq* bcom (hashmap-set hm val #t)))]
    [(remove val)
-    (bcom (^seteq* bcom (vhash-delq val vh)))]
+    (bcom (^seteq* bcom (hashmap-remove hm val)))]
    [(member? val)
-    (and (vhash-assq val vh) #t)]
+    (and (hashmap-ref hm val) #t)]
    [(as-list)
-    (vhash->list vh)]))
+    (hashmap->list hm)]))
 
 ;; And the rest, eventually...
 (define (^seteq bcom . initial)
@@ -65,7 +65,7 @@ Methods:
 `remove val': Remove VAL from the set.
 `member? val': Return #t if VAL is in the set, else #f.
 `as-list': Return the set as a cons list."
-  (spawn ^seteq* (list->vhash initial)))
+  (spawn ^seteq* (list->hashqmap initial)))
 
 (define-actor (^ghash bcom #:optional [ht (make-ghash)])
   "Construct an actor providing a transactional interface to
