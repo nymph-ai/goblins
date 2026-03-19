@@ -1380,13 +1380,14 @@ The @code{migrations} syntax will generate a procedure with the signature
 version its migrated to and the new data.
 
 @lisp
-(define migrations
-  ;; Version 0 -> 1: ignore what I'm given and return 'i-am-version-1
-  ((1 something) (list 'i-am-version-1))
-  ;; Version 1 -> 2: provide two values, 'i-am-version-2 and the something I got
-  ((2 something) (list 'i-am-version-2 something))
-  ;; Version 2 -> 3: Swap the two values around
-  ((3 something something-else) (list something-else something))
+(define my-migrations
+  (migrations
+    ;; Version 0 -> 1: ignore what I'm given and return 'i-am-version-1
+    [(1 something) (list 'i-am-version-1)]
+    ;; Version 1 -> 2: provide two values, 'i-am-version-2 and the something I got
+    [(2 something) (list 'i-am-version-2 something)]
+    ;; Version 2 -> 3: Swap the two values around
+    [(3 something something-else) (list something-else something)]))
 @end lisp
 
 When the upgrade procedure is called, it would return version 3 (as it
