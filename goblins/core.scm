@@ -18,6 +18,7 @@
 (define-module (goblins core)
   #:export (make-actormap
             make-transactormap
+            transactormap?
             make-whactormap
 
             actormap-spawn

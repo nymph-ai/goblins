@@ -98,6 +98,12 @@
 ;;; ========================
 
 (define am (make-whactormap))
+(test-assert "(make-whactormap) is a whactormap"
+             (whactormap? am))
+(test-assert "(make-whactormap) is also an actormap"
+             (actormap? am))
+(test-assert "(make-whactormap) is NOT a transactormap"
+             (not (transactormap? am)))
 
 (define (^greeter _bcom my-name)
   (lambda (your-name)
