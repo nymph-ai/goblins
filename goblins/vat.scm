@@ -972,11 +972,11 @@ Type: Vat (-> Any) -> Any"
                        0 #t))
   (vat-send vat envelope))
 
-(define-syntax-rule (with-vat vat body ...)
+(define-syntax-rule (with-vat vat body* body ...)
   ;;; Evaluate BODY in the context of VAT and return resulting values.
   ;;;
   ;;; Type: Vat Expression ... -> Any
-  (call-with-vat vat (lambda () body ...)))
+  (call-with-vat vat (lambda () body* body ...)))
 
 (define (vat-logging? vat)
   "Return #t if event logging is enabled for VAT."
