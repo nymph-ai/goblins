@@ -649,20 +649,23 @@ Return a freshly generated X.509 certificate for @var{key}.
 @subsection Unix domain socket
 
 The Unix domain socket netlayer is designed to be a fast and secure
-netlayer for communication between several processes on the same
-machine. It relies on one or more Unix domain socket introduction
-servers which provide introductions between the processes, but do not
-themselves relay the traffic.
+means of communication between processes on the same machine.  In
+order for Unix domain sockets to be capability-secure, file names
+@emph{cannot} be used.  Instead, this netlayer relies on the unique
+ability of Unix domain sockets to transfer @emph{file descriptors}.
+In other words, file descriptors are capabilities but file names are
+not.
 
-The netlayer works as follows: when a netlayer wants to open a new
-connection to a peer, it creates an anonymous Unix domain socket pair
-for that session. Since anonymous Unix domain sockets can be sent
-across other Unix domain sockets. The netlayer works by passing one
-side of the anonymous Unix domain socket it made to the introduction
-server, which will then pass it along to the recipient. This allows
-two Unix domain socket peers to communicate directly without relay or
-needing any access to the file system. The introduction server could
-go offline and existing sessions would remain unaffected.
+To initiate a connection between two peers without the use of file
+names, trusted daemons known as ``introduction servers'' are used.
+First, an anonymous (not on the file system) Unix domain socket pair
+is created on peer A.  Then, the file descriptor for one of the
+sockets is passed to the introduction server.  Finally, the
+introduction server will lookup the desired recipient, peer B, and
+pass the file descriptor to it.  Note that the introduction server is
+only needed for connection establishment; it is not a relay.  Once
+initialization is complete, communication between peers A and B is
+direct.
 
 @deffn {Constructor} ^unix-domain-socket-netlayer
 
