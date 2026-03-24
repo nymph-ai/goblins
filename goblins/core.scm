@@ -981,12 +981,13 @@ Type: Any -> Boolean"
 ;; Do NOT export this esp under serious ocap confinement
 (define current-syscaller (make-parameter #f))
 
-;; This is used to set the sleep profile on the next syscaller.
-;; It's not really ideal to be a perameter, ideally it'd be a keyword argument
-;; on the various actormap procedures. The issue is those take rest arguments so
-;; we'd need to make a copy of every actormap procedure which takes a sleep
-;; profile. This would result in a massive amount of procedures being added, so
-;; for now we're using the parameter approach.
+;; FIXME: This is used to set the sleep profile on the next syscaller.
+;; It's not really ideal to be a parameter, ideally it'd be a keyword
+;; argument on the various actormap procedures.  The issue is those
+;; take rest arguments so we'd need to make a copy of every actormap
+;; procedure which takes a sleep profile.  This would result in a
+;; massive amount of procedures being added, so for now we're using
+;; the parameter approach.
 (define current-sleep-profile (make-parameter #f))
 
 (define-record-type <syscaller>
