@@ -48,7 +48,7 @@
      ,#~(list "GUILE_AUTO_COMPILE=0")))
   (native-inputs
    (list autoconf automake pkg-config texinfo))
-  (inputs (list guile-3.0))
+  (inputs (list guile-next guile-hoot))
   (propagated-inputs
    (list guile-fibers guile-gnutls guile-websocket guile-bstructs))
   (synopsis "Transactional, distributed object programming environment")

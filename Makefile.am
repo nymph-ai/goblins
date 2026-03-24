@@ -205,20 +205,6 @@ run-tests:
 		$(GUILE) --no-auto-compile -L "$(top_srcdir)" \
 			build-aux/run-test-suite.scm $(TESTS)
 
-tests/hoot-ci/test-program.wasm: tests/hoot-ci/test-program.scm
-	$(GUILE_TOOLS) compile-wasm -L "$(GUILE_SCM_DIR)" -L "$(abs_top_srcdir)" -o "$@" "$<"
-
-# Optional goblins.js build:
-js/reflect.js:
-	cp $(HOOT_REFLECT_JS_DIR)/reflect.js "$@"
-js/reflect.wasm:
-	cp $(HOOT_REFLECT_WASM_DIR)/reflect.wasm "$@"
-js/wtf8.wasm:
-	cp $(HOOT_REFLECT_WASM_DIR)/wtf8.wasm "$@"
-js/goblins.wasm: js/goblins.scm
-	$(GUILE_TOOLS) compile-wasm -L "$(GUILE_SCM_DIR)" -L "$(abs_top_srcdir)" -o "$@" "$<"
-js: js/goblins.wasm js/reflect.js js/reflect.wasm js/wtf8.wasm
-
 EXAMPLES = examples/cauldron.scm		\
            examples/try-captp-onion.scm		\
            examples/try-base-netlayer.scm	\
@@ -243,8 +229,6 @@ EXTRA_DIST += README.org \
               build-aux/run-test-suite.scm \
               doc/goblins.css \
               doc/build-html.scm \
-              hoot-ffi/imports.js \
-              hoot-ffi/imports.scm \
               js/goblins.js \
               js/goblins.scm \
               js/index.html \
@@ -264,3 +248,41 @@ CLEANFILES =					\
   $(GOBJECTS)					\
   $(TESTS:tests/%.scm=%.log) \
   $(TESTS:%.scm=%.xml)
+
+if HAVE_HOOT
+
+EXTRA_DIST += hoot-ffi/imports.js hoot-ffi/imports.scm
+
+hootmoddir=$(prefix)/share/guile-hoot/site
+
+# Symlink module sources to Hoot site directory.
+install-data-hook:
+	$(MKDIR_P) "$(hootmoddir)"
+	chmod 755 "$(hootmoddir)"
+	$(LN_S) -f "$(moddir)/goblins.scm" "$(hootmoddir)/goblins.scm"
+	$(LN_S) -f "$(moddir)/goblins" "$(hootmoddir)/goblins"
+
+uninstall-hook:
+	$(RM) "$(hootmoddir)/goblins.scm"
+	$(RM) "$(hootmoddir)/goblins"
+
+tests/hoot-ci/test-program.wasm: tests/hoot-ci/test-program.scm
+	$(GUILE_TOOLS) compile-wasm -L "$(GUILE_SCM_DIR)" -L "$(abs_top_srcdir)" -o "$@" "$<"
+
+js/goblins.wasm: js/goblins.scm
+	$(GUILE_TOOLS) compile-wasm --bundle -L "$(GUILE_SCM_DIR)" -L "$(abs_top_srcdir)" -o "$@" "$<"
+
+js: js/goblins.wasm
+
+WASMOBJECTS = 					\
+  js/goblins.wasm				\
+  js/reflect.js					\
+  js/reflect.wasm				\
+  js/wtf8.wasm
+
+CLEANFILES += $(WASMOBJECTS)
+
+clean-wasm:
+	-$(RM) $(WASMOBJECTS)
+
+endif

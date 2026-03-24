@@ -10,6 +10,9 @@ AC_CONFIG_AUX_DIR([build-aux])
 AM_INIT_AUTOMAKE([1.12 gnu silent-rules subdir-objects  color-tests parallel-tests -Woverride -Wno-portability])
 AM_SILENT_RULES([yes])
 
+AC_PROG_MKDIR_P
+AC_PROG_LN_S
+
 AC_CONFIG_FILES([Makefile goblins/config.scm])
 AC_CONFIG_FILES([pre-inst-env], [chmod +x pre-inst-env])
 
@@ -39,22 +42,9 @@ dnl Guile-bstructs is needed for Unix domain socket netlayer support.
 GUILE_MODULE_AVAILABLE([have_guile_bstructs], [(bstructs)])
 AM_CONDITIONAL([HAVE_GUILE_BSTRUCTS], [test "x$have_guile_bstructs" = "xyes"])
 
-dnl Find Hoot's reflect.js/reflect.wasm directories.
-AC_MSG_CHECKING(for Hoot reflect.js directory)
-HOOT_REFLECT_JS_DIR=`$GUILE -c '(display (or (false-if-exception (@ (hoot config) %reflect-js-dir)) ""))'`
-AC_MSG_RESULT($HOOT_REFLECT_JS_DIR)
-if test "$HOOT_REFLECT_JS_DIR" = ""; then
-AC_MSG_WARN(Hoot reflect.js directory not found)
-fi
-AC_SUBST(HOOT_REFLECT_JS_DIR)
-
-AC_MSG_CHECKING(for Hoot reflect.wasm directory)
-HOOT_REFLECT_WASM_DIR=`$GUILE -c '(display (or (false-if-exception (@ (hoot config) %reflect-wasm-dir)) ""))'`
-AC_MSG_RESULT($HOOT_REFLECT_WASM_DIR)
-if test "$HOOT_REFLECT_WASM_DIR" = ""; then
-AC_MSG_WARN(Hoot reflect.wasm directory not found)
-fi
-AC_SUBST(HOOT_REFLECT_WASM_DIR)
+dnl Hoot is optional.
+GUILE_MODULE_AVAILABLE([have_hoot], [(hoot compile)])
+AM_CONDITIONAL([HAVE_HOOT], [test "x$have_hoot" = "xyes"])
 
 dnl Installation directories for .scm and .go files.
 guilemoduledir="${datarootdir}/guile/site/$GUILE_EFFECTIVE_VERSION"
