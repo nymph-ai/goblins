@@ -23,10 +23,12 @@
              (goblins ocapn netlayer onion)
              (goblins utils crypto)
              (goblins utils base32)
+             (goblins vat)
              (ice-9 match)
              (ice-9 iconv)
              (srfi srfi-11)
-             (fibers conditions))
+             (fibers conditions)
+             (fibers timers))
 
 (define peer-locator-output-file
   (getenv "GOBLINS_OCAPN_PEER_LOCATOR"))
@@ -100,15 +102,6 @@
    [(halt)
     ($ socket-io 'halt)]))
 
-(define (trigger-gc)
-  (define (^gc-collect _bcom)
-    (lambda ()
-      (sleep 1)
-      (gc)))
-
-  (define self (spawn ^gc-collect))
-  (<-np self))
-
 (define (^car _bcom color model)
   (lambda ()
     (format #f "Vroom! I am a ~a ~a car!" color model)))
@@ -127,15 +120,11 @@
     (spawn ^car-factory)))
 
 (define (^echo _bcom)
-  (lambda args
-    (trigger-gc)
-    args))
+  (lambda args args))
 
 (define (^greeter _bcom)
   (lambda (target)
-    (on (<- target "Hello")
-        (lambda result
-          (trigger-gc)))))
+    (<- target "Hello")))
 
 (define (^promise-resolver _bcom)
   (lambda ()
@@ -150,6 +139,15 @@
 
 (define a-vat (spawn-vat))
 (with-vat a-vat
+  ;; Force the GC to run periodically as some tests depend on CapTP GC
+  ;; messages.
+  (syscaller-free-fiber
+   (lambda ()
+     (let lp ()
+       (sleep 2)
+       (gc)
+       (lp))))
+
   (define testing-netlayer
     (match chosen-netlayer
       ['tcp-testing-only
@@ -190,7 +188,7 @@
           (call-with-output-file peer-locator-output-file
             (lambda (port)
               (display (ocapn-id->string loc) port))))
-        (format #t "Connect test suite to: ~a\n" (ocapn-id->string loc)))))
+        (format #t "Connect test suite to:\n~a\n" (ocapn-id->string loc)))))
 
 (define forever (make-condition))
 (wait forever)
