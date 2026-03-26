@@ -3,6 +3,80 @@
 #+startup: show2levels
 
 * Releases
+** v0.18.0
+*** Highlights
+**** Sleepy actors
+Sleepy actors are a new, optional caching layer has been added to the
+core of Goblins.  Actors may now go to sleep or be woken up depending
+on a customizable caching algorithm known as a "sleep strategy".  When
+an actor goes to sleep, it is saved to the vat's persistence store but
+its reference remains live.  When an asleep actor receives a message,
+its state is restored from the vat's persistence store and the message
+is processed as usual.  This release adds the core caching machinery,
+but useful sleep strategies are not yet provided out of the box.
+Future releases will implement practical strategies such as a "least
+recently used" algorithm.
+
+*** Miscellaneous changes
+- Added support for merging into non-transactormap parents in
+  =transactormap-buffer-merge=.
+- Removed =op:deliver-only= OCapN operation that has been removed in
+  current draft specification.
+- Updated OCapN GC operations to match current draft specification.
+- A special exception is now raised when an actor uses the wrong
+  =bcom= capability to change its behavior.
+- A special exception is now raised when =bcom= is used in an =on=
+  handler.
+- Exported =transactormap?= predicate in =(goblins core)=.
+- Switched =^seteq= actor to use persistent hashmaps instead of
+  vhashes.
+- Rewrote explanation of Unix domain socket netlayer in manual.
+- Improved build and installation of optional Hoot support.
+- Source modules are now symlinked to =$prefix/share/guile-hoot/site=
+  for use with Hoot.
+
+*** Bug fixes
+- Fixed a race condition where, during restoration, an actor in vat A
+  that is dependended on by vat B could be garbage collected before
+  vat B is restored.
+- Fixed signing oracle vulnerability in WebSocket netlayer.
+- Fixed several peristence regressions introduced in 0.17.0.
+- Fixed persistence layer not handling nested tagged data.
+- Fixed errors in migration example in manual.
+- Fixed =with-vat= to throw a syntax error if used with fewer than two
+  expressions.
+- Fixed =op:gc-answer= test in OCapN test suite.
+- Fixed Syrup serializtion of "pseudo-singles".
+
+*** Known issues
+**** Actors using define-actor along with its #:self keyword cannot persist
+Issue: [[https://codeberg.org/spritely/goblins/issues/256][#256]]
+
+Objects that are defined with =define-actor= and use the =#:self=
+keyword should be persisted properly, but this currently is not the
+case.  Instead, an error occurs.
+
+**** Prelay connections are unencrypted and unauthenticated
+Issue: [[https://codeberg.org/spritely/goblins/issues/144][#144]]
+
+Messages sent through the Prelay netlayer can be viewed by the relay
+server, modified and new messages inserted by the server or silently
+removed and thus not delivered by the Prelay netlayer.
+
+This means that, for the time being, you should only use the Prelay
+netlayers where you can place high trust in the relaying server.  An
+end-to-end encrypted relay is planned for a future release.
+
+**** Lack of dialback within CapTP
+Issue: [[https://codeberg.org/spritely/goblins/issues/50][#50]]
+
+When a node connects to another node in Goblins it provides the
+location from where it's accessible (i.e. the OCapN node address). One
+feature of OCapN is to ensure only one connection exists to any given
+node, since the address provided by a new incoming connection is never
+authenticated, this could lead to a denial of service by a malicious
+actor claiming to be a node it is not.
+
 ** v0.17.0
 *** Highlights
 **** Bloblin store
