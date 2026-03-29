@@ -384,9 +384,9 @@ look at a particularly interesting technique which uses the
     (swappable (spawn (lambda _ (lambda _ 'noop)))))
   ;; Swap away from the dummy placeholder above to an alive ship.
   ($ beh-swapper (spawn ^player-ship/alive
-			(spawn ^cell x)
-			(spawn ^cell y)
-			beh-swapper))
+      (spawn ^cell x)
+      (spawn ^cell y)
+      beh-swapper))
   ;; Return the proxy.
   beh-proxy)
 
@@ -786,6 +786,7 @@ in a manual persistence mode (default: @code{'churn}).
 @var{vat-constructor}: The constructor used to create the vat,
 defaults to @code{spawn-fibrous-vat}.
 
+@item
 @var{name}: Name of the vat.  Note that this is @emph{not} the name it is
 bound to in the current namespace.
 
@@ -1024,7 +1025,7 @@ fahrenheit:
 
 (define thermostat-env
   (make-persistence-env
-   (list (list ''((house temp) ^thermostat) ^thermostat))))
+   (list (list '((house temp) ^thermostat) ^thermostat))))
 @end lisp
 
 Later, we want to change the thermostat object to work with the set
@@ -1066,7 +1067,7 @@ a version and might convert it before spawning the thermostat.
 
 Goblins has a @code{versioned} function provided which allows the first
 argument to be a version tag which usually is an integer but could be
-any atomic serializable data such as a simple or even string and as a
+any atomic serializable data such as a symbol or even string and as a
 second argument the self-portrait data. If the self-portrait doesn't
 return a versioned portrait, Goblins will assign the version 0 to that
 portrait data. Later you're able to match on it and upgrade it like the
