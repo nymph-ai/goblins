@@ -36,9 +36,10 @@ recently used" algorithm.
   for use with Hoot.
 
 *** Bug fixes
-- Fixed a race condition where, during restoration, an actor in vat A
-  that is dependended on by vat B could be garbage collected before
-  vat B is restored.
+- Fixed a race condition where, during restoration with persisted
+  data, an actor in vat A that is depended on by an actor vat B but no
+  other actors in vat A could be garbage collected before vat B is
+  restored.
 - Fixed signing oracle vulnerability in WebSocket netlayer.
 - Fixed several peristence regressions introduced in 0.17.0.
 - Fixed persistence layer not handling nested tagged data.
