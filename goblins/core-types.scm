@@ -209,17 +209,6 @@
             sleep-profile-strategy
             set-sleep-profile-strategy!
 
-            <sleep-strategy>
-            make-sleep-strategy
-            sleep-strategy?
-            sleep-strategy-make-stats
-            sleep-strategy-notify-ref
-            sleep-strategy-notify-spawned
-            sleep-strategy-notify-awoken
-            sleep-strategy-determine-sleep-refrs
-            sleep-strategy-make-new-stats
-            sleep-strategy-merge-stats!
-
             <versioned>
             versioned
             versioned?
