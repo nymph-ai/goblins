@@ -95,6 +95,11 @@
    (lambda ()
      (<- (<- peer1-mycapn 'enliven peer2-cell-sref)))))
 
+;; Unfortunately, the following test fails on aarch64 within a "guix build"
+;; jail, and nobody knows why. Horrible heisenbug!
+;;   See: https://codeberg.org/spritely/goblins/issues/949
+(test-skip 1)
+
 (test-equal "Can enliven and call remote-refr over unix domain socket netlayer"
   #(ok yay)
   (test-enliven-over-uds-netlayer))
