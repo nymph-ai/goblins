@@ -78,6 +78,14 @@ node, since the address provided by a new incoming connection is never
 authenticated, this could lead to a denial of service by a malicious
 actor claiming to be a node it is not.
 
+**** Heisenbug within =guix build= on aarch64
+Issue: [[https://codeberg.org/spritely/goblins/issues/949][#949]]
+
+For whatever reason, the test for enlivening and calling remote-refrs
+over the unix domain socket netlayer fails on aarch64, but only when
+run inside the =guix build= jail! So this test has been marked as an
+expected failure for now.
+
 ** v0.17.0
 *** Highlights
 **** Bloblin store
