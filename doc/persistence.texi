@@ -1219,7 +1219,7 @@ included with Goblins:
 @lisp
 (use-modules (goblins)
              (goblins persistence-store memory)
-             (goblins sleep-strategies always)
+             (goblins sleep-strategies lru)
              (goblins actor-lib cell))
 
 (define store (make-memory-store))
@@ -1228,7 +1228,7 @@ included with Goblins:
    cell-env
    (lambda () (spawn ^cell (spawn ^cell 'inner)))
    store
-   #:sleep-strategy sleep:always))
+   #:sleep-strategy sleep:lru))
 @end lisp
 
 When a brand new vat is spawned, it initially spawns the objects from the
@@ -1238,25 +1238,41 @@ restoring a vat, all the actors will be restored asleep. Actors will then be
 woken up only after messaging them.
 
 
-@node Sleep Strategies
-@subsection Sleep Strategies
+@node Sleep strategies
+@section Sleep strategies
 
 Sleep strategies are what determine which objects should be kept awake
 and which should be put to sleep at the end of each churn. They are
 informed by Goblins when and how an object is used and then asked to
-provide a list of the objects which should be put to sleep. This allows
-for many different strategies to be used, depending on the needs of the
-program. It also allows bespoke strategies to be defined and used where
-existing ones aren't sufficient.
+provide a list of the objects which should be put to sleep. This
+allows for many different strategies to be used, depending on the
+needs of the program. It also allows bespoke strategies to be defined
+and used where existing ones aren't sufficient.
+
+@node Least recently used (LRU)
+@subsection Least recently used (LRU)
+
+The least recently used strategy (provided by the @code{(goblins
+sleep-strategies lru)} module) maintains a fixed size cache of awake
+objects.  When the cache is full, the least recently messaged objects
+are expired from the cache and then put to sleep.  LRU is a good
+one-size-fits-most strategy; specialized workloads may require a
+different strategy but LRU is a safe default choice.
+
+@deffn {Procedure} sleep:lru [#:max-objects]
+Return a new instance of the LRU sleep strategy that retains
+@var{max-objects} in its internal cache.  When the cache is full, the
+least recently used objects will be put to sleep.
+@end deffn
 
 @node Always
 @subsection Always
 
-This is provided by the @code{(goblins sleep-strategies always)}.
+The ``always'' strategy (provided by the @code{(goblins
+sleep-strategies always)} module) will put all awake objects to sleep
+at the earliest opportunity.  This strategy exists for testing
+purposes and shouldn't be used in production.
 
-@defvr {Variable} sleep:always
-
-This strategy, as the name implies, will put all possible objects asleep
-at the earliest opportunity.
-@end defvr
-
+@deffn {Procedure} sleep:always
+Return a new instance of the ``always'' sleep strategy.
+@end deffn

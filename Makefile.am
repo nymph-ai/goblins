@@ -116,7 +116,8 @@ SOURCES = goblins.scm \
           goblins/vat.scm \
           goblins/vrun.scm \
           goblins/repl.scm \
-          goblins/sleep-strategies/always.scm
+          goblins/sleep-strategies/always.scm \
+          goblins/sleep-strategies/lru.scm
 
 TESTS = tests/actor-lib/test-cell.scm \
         tests/actor-lib/test-methods.scm \
@@ -156,6 +157,7 @@ TESTS = tests/actor-lib/test-cell.scm \
         tests/test-inbox.scm \
         tests/test-vat.scm \
         tests/test-repl.scm \
+        tests/sleep-strategies/test-lru.scm \
         tests/utils/test-base32.scm \
         tests/utils/test-bytes-stuff.scm \
         tests/utils/test-ghash.scm \
