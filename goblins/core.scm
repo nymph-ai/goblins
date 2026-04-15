@@ -1751,43 +1751,77 @@ Type: Any -> Boolean"
 (define (syscaller-sleep-refr! syscaller refr)
   "Sleep @var{refr} within the @var{syscaller}'s actormap."
   (define am (syscaller-actormap syscaller))
+  (define vat-connector (actormap-vat-connector am))
   (define sleep-profile (syscaller-sleep-profile syscaller))
   (unless sleep-profile
     (error "Syscaller not configured with a sleep profile"))
   (define env (sleep-profile-env sleep-profile))
-  (define current-mactor (actormap-ref-or-die am refr))
-  (unless (mactor:object? current-mactor)
-    (error (format #f "Can only sleep an awake object. Got ~a" current-mactor)))
-
-  ;; Now we need to make the skeleton. This is just a hash table with strong
-  ;; references to the other references within its self portrait to ensure
-  ;; they're not GC'd.
+  (define mactor (actormap-ref-or-die am refr))
+  (unless (mactor:object? mactor)
+    (error "Can only sleep an awake object" mactor))
+  ;; Skeletons are hash tables that map persistence ids to the other
+  ;; objects referenced in the self-portrait.  This prevents those
+  ;; other objects from being GC'd in case this object wakes up later
+  ;; and allows the awoken object to retain the *exact same
+  ;; references* (as in eq?) that it had before, which is critical for
+  ;; correct behavior.
   (define skeleton (make-hash-table))
-  (define (slot-ref refr)
-    (define slot (local-object-refr-aurie-id refr))
-    (hash-set! skeleton slot refr)
-    slot)
-  (define (far-refr-ref refr)
-    ;; We're curreently making a hash table for each vat and putting their
-    ;; aurie-id -> refr in that. It might be better to store it as
-    ;; (vat-id aurie-id), but obviously this would take more data with lots of
-    ;; references on the same vat.
-    ;; TODO: change if we get data deduplication (issue #935)
-    (match (far-refr-object-persistence-id refr)
-      ((vat-aurie-id object-aurie-id)
-       (match (hash-ref skeleton vat-aurie-id)
-         (#f
-          (let ((vat-skeleton (make-hash-table)))
-            (hash-set! vat-skeleton object-aurie-id refr)
-            (hash-set! skeleton vat-aurie-id vat-skeleton)))
-         (vat-skeleton (hash-set! vat-skeleton object-aurie-id refr)))
-       (list vat-aurie-id object-aurie-id))
-      (#f #f)))
-  ;; Actually generate its portrait. In doing this we're generating a skeleton.
-  (actormap-read-object-portrait am env refr slot-ref far-refr-ref)
+  (define (skeleton-far-set! vat-id obj-id refr)
+    (match (hash-ref skeleton vat-id)
+      (#f
+       (let ((vat-skeleton (make-hash-table)))
+         (hash-set! vat-skeleton obj-id refr)
+         (hash-set! skeleton vat-id vat-skeleton)))
+      (vat-skeleton
+       (hash-set! vat-skeleton obj-id refr))))
+  ;; Walk the object's portrait and add every object reference to the
+  ;; skeleton.
+  (define visit
+    (match-lambda
+      ((? local-object-refr? refr)
+       (if (eq? (local-object-refr-vat-connector refr) vat-connector)
+           (let ((slot (local-object-refr-aurie-id refr)))
+             (hash-set! skeleton slot refr))
+           (match (far-refr-object-persistence-id refr)
+             ((vat-id obj-id)
+              (skeleton-far-set! vat-id obj-id refr)))))
+      ((? local-promise-refr? refr)
+       (match (actormap-ref am refr)
+         ((? mactor:aurie-local-link? link)
+          (match (mactor:aurie-local-link-depiction link)
+            (('far (vat-id obj-id))
+             (skeleton-far-set! vat-id obj-id refr))
+            (_ (values))))
+         ((? mactor:local-link? link)
+          (visit (mactor:local-link-point-to link)))
+         ((? mactor:encased? encased)
+          (visit (mactor:encased-val encased)))
+         (_ (values))))
+      ((head . tail)
+       (visit head)
+       (visit tail))
+      ((? vector? v)
+       (do ((i 0 (1+ i)))
+           ((= i (vector-length v)))
+         (visit (vector-ref v i))))
+      ((? hashmap? h)
+       (hashmap-for-each (lambda (k v)
+                           (visit k)
+                           (visit v))
+                         h))
+      ((? gset? s)
+       (gset-for-each visit s))
+      ((? tagged? t)
+       (visit (tagged-label t))
+       (visit (tagged-data t)))
+      (_ (values))))
+  (match ((mactor:object-self-portrait mactor))
+    ((? versioned? v)
+     (visit (versioned-data v)))
+    (x (visit x)))
 
   (define asleep-mactor
-    (make-mactor:asleep (mactor:object-constructor-refr current-mactor)
+    (make-mactor:asleep (mactor:object-constructor-refr mactor)
                         skeleton))
   (actormap-set! am refr asleep-mactor))
 

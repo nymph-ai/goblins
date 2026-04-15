@@ -1268,4 +1268,42 @@
    (lambda ()
      (actormap-poke! new-am restored-nested-portrait-data-actor))))
 
+;; Regression test for https://codeberg.org/spritely/goblins/issues/957
+(define (fake-vat-connector vat-id)
+  (match-lambda*
+    (('aurie-vat-id) vat-id)))
+(test-equal "actors correctly retain far refrs when they fall asleep after restoration"
+  '(far (alice 1))
+  (let* ((am1 (make-actormap #:vat-connector (fake-vat-connector 'alice)))
+         (am2 (make-actormap #:vat-connector (fake-vat-connector 'bob)))
+         (store (make-memory-store))
+         (zzz (make-sleep-profile env store (sleep:always)))
+         (alice (actormap-spawn! am1 ^ro-cell 42))
+         (bob (actormap-spawn! am2 ^ro-cell alice)))
+    (call-with-sleep-profile
+     zzz
+     (lambda ()
+       ;; Save Bob.
+       (actormap-save-to-store! am2 env store bob)
+       ;; Create a new actormap for restoration.
+       (set! am2 (make-actormap))
+       ;; Restore Bob.
+       (define-values (changed refrs->slots slots->refrs far-refr-resolvers roots)
+         (let ((portraits (make-hash-table)))
+           (hash-set! portraits 1 ((persistence-store-read-proc store) 'object-portrait 1))
+           (actormap-restore-refrs-asleep! am2 portraits '(1))))
+       ;; Replace the original Bob reference with the restored Bob.
+       (match roots
+         ((new-bob) (set! bob new-bob)))
+       ;; Wake Bob up.
+       (actormap-poke! am2 bob)
+       ;; Put Bob back to sleep.
+       (actormap-bedtime! am2 zzz (list bob))
+       ;; Wake Bob up again.  The reference to Alice should be a local
+       ;; promise that is linked to Alice's persistence id.
+       (let ((alice* (actormap-peek am2 bob)))
+         (and (local-promise-refr? alice*)
+              (mactor:aurie-local-link-depiction
+               (actormap-ref am2 alice*))))))))
+
 (test-end "test-goblins-core")
