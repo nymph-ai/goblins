@@ -12,7 +12,7 @@
 ;;; See the License for the specific language governing permissions and
 ;;; limitations under the License.
 
-(define-module  (goblins sleep-strategies always)
+(define-module (goblins sleep-strategy always)
   #:use-module (goblins core-types)
   #:use-module (goblins abstract-types)
   #:use-module (srfi srfi-1)
@@ -29,5 +29,3 @@
            prev))
      '()
      (transactormap-data-messaged-refrs am-data))))
-
-

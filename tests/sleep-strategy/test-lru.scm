@@ -12,12 +12,12 @@
 ;;; See the License for the specific language governing permissions and
 ;;; limitations under the License.
 
-(define-module (tests sleep-strategies lru)
+(define-module (tests sleep-strategy lru)
   #:use-module (goblins core-types)
-  #:use-module (goblins sleep-strategies lru)
+  #:use-module (goblins sleep-strategy lru)
   #:use-module (srfi srfi-64))
 
-(test-begin "test-sleep-strategies-lru")
+(test-begin "test-sleep-strategy-lru")
 
 ;; We don't actually care about what's in the transactormap very much.
 ;; All that matters are the hash table keys.
@@ -53,4 +53,4 @@
            (lru (fake-transaction 'd 'e 'b) val->slot-ref))
           symbol<?)))
 
-(test-end "test-sleep-strategies-lru")
+(test-end "test-sleep-strategy-lru")

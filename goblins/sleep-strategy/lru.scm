@@ -19,7 +19,7 @@
 ;;
 ;;; Code:
 
-(define-module (goblins sleep-strategies lru)
+(define-module (goblins sleep-strategy lru)
   #:use-module (goblins core-types)
   #:use-module (srfi srfi-9)
   #:use-module (ice-9 match)

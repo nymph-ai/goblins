@@ -1219,7 +1219,7 @@ included with Goblins:
 @lisp
 (use-modules (goblins)
              (goblins persistence-store memory)
-             (goblins sleep-strategies lru)
+             (goblins sleep-strategy always)
              (goblins actor-lib cell))
 
 (define store (make-memory-store))
@@ -1253,7 +1253,7 @@ and used where existing ones aren't sufficient.
 @subsection Least recently used (LRU)
 
 The least recently used strategy (provided by the @code{(goblins
-sleep-strategies lru)} module) maintains a fixed size cache of awake
+sleep-strategy lru)} module) maintains a fixed size cache of awake
 objects.  When the cache is full, the least recently messaged objects
 are expired from the cache and then put to sleep.  LRU is a good
 one-size-fits-most strategy; specialized workloads may require a
@@ -1268,10 +1268,10 @@ least recently used objects will be put to sleep.
 @node Always
 @subsection Always
 
-The ``always'' strategy (provided by the @code{(goblins
-sleep-strategies always)} module) will put all awake objects to sleep
-at the earliest opportunity.  This strategy exists for testing
-purposes and shouldn't be used in production.
+The ``always'' strategy (provided by the @code{(goblins sleep-strategy
+always)} module) will put all awake objects to sleep at the earliest
+opportunity.  This strategy exists for testing purposes and shouldn't
+be used in production.
 
 @deffn {Procedure} sleep:always
 Return a new instance of the ``always'' sleep strategy.

@@ -97,6 +97,8 @@ SOURCES = goblins.scm \
           goblins/persistence-store/local-storage.scm \
           goblins/persistence-store/memory.scm \
           goblins/persistence-store/syrup.scm \
+          goblins/sleep-strategy/always.scm \
+          goblins/sleep-strategy/lru.scm \
           goblins/utils/assert-type.scm \
           goblins/utils/base32.scm \
           goblins/utils/bytes-stuff.scm \
@@ -115,9 +117,7 @@ SOURCES = goblins.scm \
           goblins/utils/hashmap.scm \
           goblins/vat.scm \
           goblins/vrun.scm \
-          goblins/repl.scm \
-          goblins/sleep-strategies/always.scm \
-          goblins/sleep-strategies/lru.scm
+          goblins/repl.scm
 
 TESTS = tests/actor-lib/test-cell.scm \
         tests/actor-lib/test-methods.scm \
@@ -157,7 +157,7 @@ TESTS = tests/actor-lib/test-cell.scm \
         tests/test-inbox.scm \
         tests/test-vat.scm \
         tests/test-repl.scm \
-        tests/sleep-strategies/test-lru.scm \
+        tests/sleep-strategy/test-lru.scm \
         tests/utils/test-base32.scm \
         tests/utils/test-bytes-stuff.scm \
         tests/utils/test-ghash.scm \

@@ -25,7 +25,7 @@
   #:use-module (goblins actor-lib methods)
   #:use-module (goblins actor-lib joiners)
   #:use-module (goblins persistence-store memory)
-  #:use-module (goblins sleep-strategies always)
+  #:use-module (goblins sleep-strategy always)
   #:use-module (goblins utils hashmap)
   #:use-module (tests utils)
   #:use-module (fibers)

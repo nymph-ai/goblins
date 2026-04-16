@@ -18,7 +18,7 @@
   #:use-module (goblins core)
   #:use-module (goblins core-types)
   #:use-module (goblins persistence-store memory)
-  #:use-module (goblins sleep-strategies always)
+  #:use-module (goblins sleep-strategy always)
   #:use-module (goblins abstract-types)
   #:use-module (goblins utils ghash)
   #:use-module (goblins utils hashmap)
