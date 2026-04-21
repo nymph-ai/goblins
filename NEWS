@@ -34,6 +34,8 @@ recently used" algorithm.
 - Improved build and installation of optional Hoot support.
 - Source modules are now symlinked to =$prefix/share/guile-hoot/site=
   for use with Hoot.
+- Improved performance of near/far refr checks in
+  =actormap-read-object-portrait=.
 
 *** Bug fixes
 - Fixed a race condition where, during restoration with persisted
