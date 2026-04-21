@@ -54,7 +54,7 @@ jobs:
           trap "kill $TEST_SUITE_PID || true" EXIT INT TERM
           cd ../ocapn-test-suite
           timeout 60 bash -c "while [ ! -s $GOBLINS_OCAPN_PEER_LOCATOR ]; do sleep 1; done" || { echo "Goblins didn't start netlayer"; exit 1; }
-          python3 ./test_runner.py --captp-version=goblins-0.18 "$(cat $GOBLINS_OCAPN_PEER_LOCATOR)"
+          python3 ./test_runner.py --captp-version=1.0 "$(cat $GOBLINS_OCAPN_PEER_LOCATOR)"
           rm $GOBLINS_OCAPN_PEER_LOCATOR
         shell: guix shell -m manifest.scm python python-cryptography python-stem -- {0}
         working-directory: goblins
