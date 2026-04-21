@@ -3080,10 +3080,7 @@ Type: Actormap Sleep-Profile (List Actor ...) -> Void"
     (or (persistence-env-ref-by-constructor persistence-env constructor-refr)
         (persistence-error "Don't know how to persist object"
                            object constructor-refr)))
-  (define (am-near-refr? refr)
-    (actormap-run am (lambda () (near-refr? refr))))
-  (define (am-far-refr? refr)
-    (actormap-run am (lambda () (far-refr? refr))))
+  (define vat-connector (actormap-vat-connector am))
   (define (process-one value)
     (match value
       [(? depictable-atom? atom) atom]
@@ -3127,14 +3124,14 @@ Type: Actormap Sleep-Profile (List Actor ...) -> Void"
                      (process-one (tagged-data tagged)))]
       [(? zilch?) (make-tagged* 'zilch #f)]
       [(? unspecified?) (make-tagged* 'void #f)]
-      [(and (? am-near-refr?) (? local-object-refr?))
-       (make-tagged* 'near (slot-ref value))]
-      [(and (? am-far-refr? refr) (? local-object-refr?))
-       ;; Far refrs need to be serialized as a tuple of:
-       ;; (<vat-aurie-id> <refr-aurie-id>)
-       (match (far-refr-object-ref value)
-         (#f (make-tagged* 'broken))
-         (object-id (make-tagged 'far object-id)))]
+      [(? local-object-refr? refr)
+       (if (eq? vat-connector (local-object-refr-vat-connector refr))
+           (make-tagged* 'near (slot-ref value))
+           ;; Far refrs need to be serialized as a tuple of:
+           ;; (<vat-aurie-id> <refr-aurie-id>)
+           (match (far-refr-object-ref value)
+             (#f (make-tagged* 'broken))
+             (object-id (make-tagged 'far object-id))))]
       [(? local-promise-refr? vow)
        ;; The mactors can be difficult to follow, refer to world of mactors
        ;; comment in core-types.scm
