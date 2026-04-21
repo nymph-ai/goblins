@@ -566,7 +566,7 @@ Type: TransActormap -> Void"
       ;; Merge the ref'ed marks
       (hash-for-each
        (lambda (key val)
-         (actormap-on-message root-actormap key))
+         (actormap-message-hook root-actormap key))
        (transactormap-data-messaged-refrs tm-data))
       (merge-actormap-aurie-counters! root-actormap transactormap)
       (set-transactormap-data-merged?! tm-data #t))
@@ -610,7 +610,7 @@ Type: TransActormap -> Void"
    (transactormap-data-delta tm-data))
   (hash-for-each
    (lambda (key val)
-     (actormap-on-message parent key))
+     (actormap-message-hook parent key))
    (transactormap-data-messaged-refrs tm-data))
   (merge-actormap-aurie-counters! parent transactormap)
   (set-transactormap-data-merged?! tm-data #t))
@@ -625,7 +625,7 @@ Type: TransActormap -> Void"
 
 (define transactormap-metatype
   (make-actormap-metatype 'transactormap transactormap-ref transactormap-set!
-                          transactormap-on-message transactormap-for-each))
+                          transactormap-message-hook transactormap-for-each))
 
 (define (make-transactormap parent)
   "Create a return a reference to a transactional actormap
@@ -1073,7 +1073,7 @@ Type: Any -> Boolean"
             (mactor:object-become-unsealer mactor)))
        (define (_do-actor-call)
          (apply actor-behavior args))
-       (actormap-on-message actormap to-refr)
+       (actormap-message-hook actormap to-refr)
        (define (_handle-await k fulfill-proc promise?)
          (define-values (waiting-promise waiting-resolver)
            (_spawn-promise-and-resolver))

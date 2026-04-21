@@ -38,7 +38,7 @@
             actormap-set!
             set-actormap-aurie-counter!
             actormap-for-each
-            actormap-on-message
+            actormap-message-hook
 
             merge-actormap-aurie-counters!
             increment-actormap-aurie-counter!
@@ -69,7 +69,7 @@
             transactormap-data-merged?
             set-transactormap-data-merged?!
             transactormap-merged?
-            transactormap-on-message
+            transactormap-message-hook
             transactormap-data-messaged-refrs
 
             <local-object-refr>
@@ -288,12 +288,12 @@
 ;;    (format port "#<actormap ~a>" (actormap-metatype-name (actormap-metatype am)))))
 
 (define-record-type <actormap-metatype>
-  (make-actormap-metatype name ref-proc set!-proc on-message-proc for-each-proc)
+  (make-actormap-metatype name ref-proc set!-proc message-hook-proc for-each-proc)
   actormap-metatype?
   (name actormap-metatype-name)
   (ref-proc actormap-metatype-ref-proc)
   (set!-proc actormap-metatype-set!-proc)
-  (on-message-proc actormap-metatype-on-message-proc)
+  (message-hook-proc actormap-metatype-message-hook-proc)
   (for-each-proc actormap-metatype-for-each-proc))
 
 (define (actormap-set! am key val)
@@ -301,8 +301,8 @@
    am key val)
   *unspecified*)
 
-(define (actormap-on-message am refr)
-  ((actormap-metatype-on-message-proc (actormap-metatype am)) am refr)
+(define (actormap-message-hook am refr)
+  ((actormap-metatype-message-hook-proc (actormap-metatype am)) am refr)
   (values))
 
 ;; (-> actormap? local-refr? (or/c mactor? #f))
@@ -338,12 +338,12 @@ Type: Any -> Boolean"
 
 
 ;; This is effectively a no-op for whactormaps.
-(define (whactormap-on-message am refr)
+(define (whactormap-message-hook am refr)
   (values))
 
 (define whactormap-metatype
   (make-actormap-metatype 'whactormap whactormap-ref whactormap-set!
-                          whactormap-on-message whactormap-for-each))
+                          whactormap-message-hook whactormap-for-each))
 
 ;; Transactional actormaps
 ;; =======================
@@ -359,7 +359,7 @@ Type: Any -> Boolean"
 (define (transactormap-merged? transactormap)
   (transactormap-data-merged? (actormap-data transactormap)))
 
-(define (transactormap-on-message tm refr)
+(define (transactormap-message-hook tm refr)
   (hashq-set! (transactormap-data-messaged-refrs (actormap-data tm)) refr #t))
 
 ;; Ref(r)s
