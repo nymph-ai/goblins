@@ -50,7 +50,7 @@
   #:use-module (fibers channels)
   #:export (spawn-mycapn captp-env))
 
-(define captp-version "goblins-0.18")
+(define captp-version "1.0")
 
 ;; This should be better documented, and will when it becomes more of
 ;; a "standardized protocol" as opposed to a "bespoke implementation".
