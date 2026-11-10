@@ -1,6 +1,7 @@
 ;;; Copyright 2019-2021 Christine Lemmer-Webber
 ;;; Copyright 2023 David Thompson
 ;;; Copyright 2024-2025 Jessica Tallon
+;;; NymphAI modifications: native question severance and lifecycle regressions.
 ;;;
 ;;; Licensed under the Apache License, Version 2.0 (the "License");
 ;;; you may not use this file except in compliance with the License.
@@ -144,6 +145,12 @@
         ($$ coordinator 'get-our-side-name)]))
     (define main-beh
       (methods
+       [(register-question-breaker question-finder breaker)
+        (if running?
+            (set-question-finder-breaker! question-finder breaker)
+            (<-np breaker (captp-session-severed)))]
+       [(forget-question-breaker question-finder)
+        (set-question-finder-breaker! question-finder #f)]
        [(resolve-on-sever sever-resolver)
         (if running?
             (let* ((noop-beh
@@ -524,6 +531,15 @@
     (spawn ^seteq))
 
   (define (tear-it-down shutdown-type reason)
+    ;; Unanswered questions have not resolved to remote objects, so they
+    ;; do not have the severance subscription installed by ^resolver.
+    ;; Retire them through the existing weak question table instead.
+    (hash-for-each
+     (lambda (question-finder _position)
+       (let ((breaker (question-finder-breaker question-finder)))
+         (when breaker
+           (<-np breaker (captp-session-severed)))))
+     questions)
     (set! exports-val2pos #f)
     (set! exports-pos2val #f)
     (set! imports #f)

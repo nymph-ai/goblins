@@ -2,6 +2,7 @@
 ;;; Copyright 2023 David Thompson
 ;;; Copyright 2024 Jessica Tallon
 ;;; Copyright 2024 Juliana Sims
+;;; NymphAI modifications: native question severance and lifecycle regressions.
 ;;;
 ;;; Licensed under the Apache License, Version 2.0 (the "License");
 ;;; you may not use this file except in compliance with the License.
@@ -199,6 +200,8 @@
             make-question-finder
             question-finder?
             question-finder-sealed-pos
+            question-finder-breaker
+            set-question-finder-breaker!
 
             <giftmeta>
             make-giftmeta
@@ -514,9 +517,15 @@
 ;; since messages sent to a question are pipelined through the answer
 ;; side of some "remote" peer.
 (define-record-type <question-finder>
-  (make-question-finder sealed-pos)
+  (%make-question-finder sealed-pos breaker)
   question-finder?
-  (sealed-pos question-finder-sealed-pos))
+  (sealed-pos question-finder-sealed-pos)
+  ;; Kept with the existing weakly held question, not a connection-wide
+  ;; severance subscription. The breaker must not retain the question.
+  (breaker question-finder-breaker set-question-finder-breaker!))
+
+(define (make-question-finder sealed-pos)
+  (%make-question-finder sealed-pos #f))
 
 (define-record-type <giftmeta>
   (make-giftmeta gift destroy-on-fetch)

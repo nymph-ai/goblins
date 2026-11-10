@@ -1,6 +1,7 @@
 ;;; Copyright 2019-2023 Christine Lemmer-Webber
 ;;; Copyright 2023 David Thompson
 ;;; Copyright 2024 Jessica Tallon
+;;; NymphAI modifications: native question severance and lifecycle regressions.
 ;;;
 ;;; Licensed under the Apache License, Version 2.0 (the "License");
 ;;; you may not use this file except in compliance with the License.
@@ -23,9 +24,12 @@
   #:use-module (goblins utils ghash)
   #:use-module (goblins utils hashmap)
   #:use-module (goblins ocapn ids)
+  #:use-module (goblins ocapn captp-types)
+  #:use-module (goblins utils weak-box)
   #:use-module (tests utils)
 
   #:use-module (ice-9 match)
+  #:use-module (ice-9 threads)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-64)
   #:use-module (srfi srfi-11))
@@ -1305,5 +1309,62 @@
          (and (local-promise-refr? alice*)
               (mactor:aurie-local-link-depiction
                (actormap-ref am2 alice*))))))))
+
+;; Keeping a question finder alive must not keep a completed promise
+;; alive through its severance breaker. Build the promise on a short-lived
+;; thread so conservative stack scanning cannot retain a discarded local.
+(define (^question-collector _bcom)
+  (match-lambda*
+    (('register-question-breaker question breaker)
+     (set-question-finder-breaker! question breaker))
+    ;; Deliberately retain the breaker to test its weak reference even
+    ;; when ordinary settlement cleanup has not removed it yet.
+    (('forget-question-breaker question) 'retained-for-test)))
+
+(define (make-question-marker am finder connector)
+  (actormap-churn-run!
+   am
+   (lambda ()
+     (define-values (promise resolver)
+       ((@@ (goblins core) _spawn-promise-and-resolver)
+        #:question-finder finder #:captp-connector connector))
+     ($ resolver 'fulfill 'completed)
+     (make-weak-box promise))))
+
+(let* ((am (make-actormap))
+       (finder (make-question-finder 'test-position))
+       (connector-object
+        (actormap-spawn! am ^question-collector))
+       (connector
+        (match-lambda*
+          (('connector-obj) connector-object)))
+       (weak-promise
+        (join-thread
+         (call-with-new-thread
+          (lambda ()
+            (make-question-marker am finder connector))))))
+  (test-assert "question breaker was installed before collection test"
+    (question-finder-breaker finder))
+  (do ((n 0 (+ n 1))) ((= n 8)) (gc))
+  (test-equal "a retained question breaker does not retain a completed promise"
+    #f (weak-box-value weak-promise)))
+
+;; A late response must be harmless if native question severance wins.
+(let* ((am (make-actormap))
+       (finder (make-question-finder 'late-answer))
+       (connector-object (actormap-spawn! am ^question-collector))
+       (connector (match-lambda* (('connector-obj) connector-object))))
+  (define-values (promise resolver)
+    (actormap-churn-run!
+     am (lambda ()
+          ((@@ (goblins core) _spawn-promise-and-resolver)
+           #:question-finder finder #:captp-connector connector))))
+  (actormap-churn-run!
+   am (lambda () ($ (question-finder-breaker finder) 'disconnected)))
+  (test-equal "a late fulfillment after question severance is ignored"
+    #f (actormap-churn-run! am (lambda () ($ resolver 'fulfill 'too-late))))
+  (test-equal "a late fulfillment cannot overwrite question severance"
+    #(err (disconnected))
+    (am-resolve-vow-and-return-result am (lambda () promise))))
 
 (test-end "test-goblins-core")
