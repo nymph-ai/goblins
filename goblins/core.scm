@@ -2,6 +2,7 @@
 ;;; Copyright 2023 David Thompson
 ;;; Copyright 2022-2026 Jessica Tallon
 ;;; Copyright 2023 Juliana Sims
+;;; NymphAI modifications: native question severance and lifecycle regressions.
 ;;;
 ;;; Licensed under the Apache License, Version 2.0 (the "License");
 ;;; you may not use this file except in compliance with the License.
@@ -188,6 +189,7 @@
   #:use-module (goblins utils assert-type)
   #:use-module (goblins ocapn ids)
   #:use-module (goblins utils error-handling)
+  #:use-module (goblins utils weak-box)
   #:use-module (goblins utils simple-sealers))
 
 
@@ -1357,6 +1359,7 @@ Type: Any -> Boolean"
      ;;  - Now actually switch to the new mactor state
      (actormap-set! actormap promise-id
                     next-mactor-state)
+     (syscaller-forget-question-breaker syscaller orig-mactor)
 
      ;; Resolve listeners, if appropriate (ie, if not mactor:closer)
      (unless (mactor:unresolved? next-mactor-state)
@@ -1395,7 +1398,8 @@ Type: Any -> Boolean"
                all-interested-listeners)
      ;; Now we "become" broken with that problem
      (actormap-set! actormap promise-id
-                    (make-mactor:broken problem))]
+                    (make-mactor:broken problem))
+     (syscaller-forget-question-breaker syscaller unresolved-mactor)]
     [(? mactor:remote-link? refr)
      (let* ((eventual (mactor:remote-link-eventual refr))
             (tm? (m~eventual-resolver-tm? eventual)))
@@ -2265,6 +2269,31 @@ Type: Promise (Optional (Any -> Any))
 (define already-resolved
   (lambda _ #f))
 
+(define (syscaller-forget-question-breaker sys mactor)
+  (when (mactor:question? mactor)
+    (let ((connector (mactor:question-captp-connector mactor)))
+      (syscaller-<-np sys (connector 'connector-obj)
+                       (list 'forget-question-breaker
+                             (mactor:question-question-finder mactor))))))
+
+(define (^question-breaker bcom weak-promise weak-resolver sealer)
+  (lambda (problem)
+    (let ((promise (weak-box-value weak-promise)))
+      (when promise
+        (let ((sys (get-syscaller-or-die)))
+          ;; A result or a handoff may win the race with severance. Only
+          ;; unanswered questions still belong to the original connection.
+          (when (mactor:question?
+                 (actormap-ref (syscaller-actormap sys) promise))
+            (let ((resolver (weak-box-value weak-resolver)))
+              (if resolver
+                  ;; Retire the resolver too, so a late response is ignored.
+                  (syscaller-$ sys resolver (list 'break problem))
+                  ;; The caller may retain its promise after the connection
+                  ;; has released the last reference to its resolver.
+                  (syscaller-break-promise sys promise (sealer problem))))))))
+    (bcom already-resolved)))
+
 (define* (^resolver bcom promise sealer #:key self)
   ;; Hack so that we can have a reference to ourselves, this will
   ;; be called as the first message by _spawn-promise-and-resolver
@@ -2331,6 +2360,13 @@ Type: Promise (Optional (Any -> Any))
   (define resolver
     (spawn-named 'resolver ^resolver promise sealer))
   (syscaller-$ sys resolver (list resolver))
+  (when question-finder
+    (syscaller-<-np
+     sys (captp-connector 'connector-obj)
+     (list 'register-question-breaker question-finder
+           (spawn-named 'question-breaker ^question-breaker
+                        (make-weak-box promise) (make-weak-box resolver)
+                        sealer))))
   (values promise resolver))
 
 ;; We don't want to expose the keyword arguments of the parent

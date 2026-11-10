@@ -1,5 +1,6 @@
 ;;; Copyright 2023 Christine Lemmer-Webber
 ;;; Copyright 2024-2025 Jessica Tallon
+;;; NymphAI modifications: native question severance and lifecycle regressions.
 ;;;
 ;;; Licensed under the Apache License, Version 2.0 (the "License");
 ;;; you may not use this file except in compliance with the License.
@@ -30,6 +31,7 @@
   #:use-module (tests utils)
   #:use-module (fibers channels)
   #:use-module (ice-9 match)
+  #:use-module (srfi srfi-11)
   #:use-module (srfi srfi-64))
 
 (test-begin "test-captp")
@@ -594,5 +596,117 @@
   (test-equal "Check two sessions cannot exist between two peers"
     #(ok #t)
     result))
+
+;; An unanswered question has not yet resolved to a remote reference.
+;; Cover every pipelined question constructor, not just ordinary calls.
+(let-values (((caller-vat caller-netlayer caller-capn)
+              (make-new-peer "pending-caller"))
+             ((callee-vat callee-netlayer callee-capn)
+              (make-new-peer "pending-callee"))
+             ((third-vat third-netlayer third-capn)
+              (make-new-peer "pending-third")))
+  (define sturdyref
+    (with-vat callee-vat
+      (define resolvers (spawn ^cell '()))
+      (define (^pending _bcom)
+        (methods
+         ((wait started)
+          (define-values (vow resolver) (spawn-promise-and-resolver))
+          ($ resolvers (cons resolver ($ resolvers)))
+          (<-np started)
+          vow)
+         ((echo value) value)))
+      ($ callee-capn 'register (spawn ^pending) 'fake)))
+  (define recipient
+    (match (resolve-vow-and-return-result
+            caller-vat (lambda () (<- caller-capn 'enliven sturdyref)))
+      (#('ok recipient) recipient)))
+  (define-values (pending pipelined field indexed tagged started)
+    (with-vat caller-vat
+      (define-values (started started-resolver) (spawn-promise-and-resolver))
+      (define (^started _bcom)
+        (lambda () ($ started-resolver 'fulfill 'started)))
+      (define pending (<- recipient 'wait (spawn ^started)))
+      (values pending (<- pending 'not-yet-callable)
+              (<-hashmap-ref pending "field")
+              (<-list-ref pending 0)
+              (<-tagged-ref pending "tag") started)))
+  (test-equal "pending operation arrived before severance"
+    #(ok started)
+    (resolve-vow-and-return-result caller-vat (lambda () started)))
+  (define-values (accepted accepted-finder)
+    (with-vat caller-vat
+      (define accepted (<- recipient 'echo 'accepted))
+      (values accepted
+              (mactor:question-question-finder
+               (actormap-ref ((@@ (goblins core) syscaller-actormap)
+                              ((@@ (goblins core) get-syscaller-or-die)))
+                             accepted)))))
+  (test-equal "a completed question has a result before severance"
+    #(ok accepted)
+    (resolve-vow-and-return-result caller-vat (lambda () accepted)))
+  ;; Complete a further round trip so the connector has processed the
+  ;; settlement notification, even while this test retains the finder.
+  (resolve-vow-and-return-result
+   caller-vat (lambda () (<- recipient 'echo 'barrier)))
+  (test-equal "settlement removes the question's breaker"
+    #f (question-finder-breaker accepted-finder))
+  (define third-sturdyref
+    (with-vat third-vat ($ third-capn 'register (spawn ^echo) 'fake)))
+  (define third
+    (match (resolve-vow-and-return-result
+            caller-vat (lambda () (<- caller-capn 'enliven third-sturdyref)))
+      (#('ok third) third)))
+  (define handed-off
+    (with-vat caller-vat (<- recipient 'echo third)))
+  (test-assert "question resolves to an object on a third peer"
+    (match (resolve-vow-and-return-result caller-vat (lambda () handed-off))
+      (#('ok (? remote-object-refr?)) #t)
+      (_ #f)))
+  (define connector (remote-refr-captp-connector recipient))
+  ;; Allocate while connected, but register its breaker after teardown:
+  ;; another vat can be in the middle of constructing a question then.
+  (define late-finder (with-vat caller-vat (connector 'new-question-finder)))
+  (define severed
+    (with-vat caller-vat
+      (define-values (severed resolver) (spawn-promise-and-resolver))
+      (on-sever recipient (lambda _ ($ resolver 'fulfill 'severed)))
+      severed))
+  (with-vat caller-vat
+    (connector 'handle-message (op:abort "unanswered question regression")))
+  (test-equal "teardown precedes the late question registration"
+    #(ok severed)
+    (resolve-vow-and-return-result caller-vat (lambda () severed)))
+  (define late-question
+    (with-vat caller-vat
+      (define-values (promise resolver)
+        ((@@ (goblins core) _spawn-promise-and-resolver)
+         #:question-finder late-finder #:captp-connector connector))
+      promise))
+  (test-assert "question registration racing teardown breaks"
+    (match (resolve-vow-and-return-result caller-vat (lambda () late-question))
+      (#('err ((? captp-session-severed?))) #t)
+      (_ #f)))
+  (for-each
+   (lambda (label promise)
+     (test-assert label
+       (match (resolve-vow-and-return-result caller-vat (lambda () promise))
+         (#('err ((? captp-session-severed?))) #t)
+         (_ #f))))
+   '("severance breaks an unanswered question"
+     "severance breaks a pipelined call"
+     "severance breaks a pipelined hashmap question"
+     "severance breaks a pipelined list question"
+     "severance breaks a pipelined tagged question")
+   (list pending pipelined field indexed tagged))
+  (test-equal "severance preserves a completed question's result"
+    #(ok accepted)
+    (resolve-vow-and-return-result caller-vat (lambda () accepted)))
+  (test-equal "original connection loss preserves a completed third-party handoff"
+    #(ok still-here)
+    (resolve-vow-and-return-result caller-vat (lambda () (<- handed-off 'still-here))))
+  (vat-halt! caller-vat)
+  (vat-halt! callee-vat)
+  (vat-halt! third-vat))
 
 (test-end "test-captp")
