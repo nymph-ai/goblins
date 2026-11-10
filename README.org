@@ -1,3 +1,10 @@
+* NymphAI maintained fork
+
+This repository is an independently maintained fork of Spritely Goblins,
+based on upstream 0.18.0. See [[file:FORK.md][FORK.md]] for the native CapTP fix,
+validation, contribution policy, and update process. The original upstream
+README follows.
+
 #+TITLE: Spritely Goblins
 
 It is both Spritely's core distributed networked technology, and
